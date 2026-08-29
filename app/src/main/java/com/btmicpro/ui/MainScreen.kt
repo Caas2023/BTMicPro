@@ -221,11 +221,11 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
         if (showPromoPopup) {
             val promoList = remember {
                 listOf(
-                    PromoBannerItem("CAPACETES", "EM PROMOÇÃO", "https://s.shopee.com.br/3g3FumMouO", icon = Icons.Default.SportsMotorsports, neonColor = Color(0xFFFF3333)),
-                    PromoBannerItem("CAPA DE CHUVA", "EM PROMOÇÃO", "https://s.shopee.com.br/2gAij6Mj1r", imageRes = R.drawable.promo_capa_chuva, neonColor = Color(0xFF00E5FF)),
-                    PromoBannerItem("KIT RELAÇÃO", "EM PROMOÇÃO", "https://s.shopee.com.br/7fZOgLkL36", icon = Icons.Default.Build, neonColor = Color(0xFFFF9100)),
-                    PromoBannerItem("INTERCOMUNICADOR", "EM PROMOÇÃO", "https://s.shopee.com.br/4qFDJF1V58", icon = Icons.Default.HeadsetMic, neonColor = Color(0xFFD500F9)),
-                    PromoBannerItem("PNEUS DE MOTO", "EM PROMOÇÃO", "https://s.shopee.com.br/6fgrTWMGS9", icon = Icons.Default.Speed, neonColor = Color(0xFF00E676))
+                    PromoBannerItem("CAPA DE CHUVA", "EM PROMOÇÃO", "https://s.shopee.com.br/2gAij6Mj1r", bannerRes = R.drawable.banner_capa_chuva, neonColor = Color(0xFFFF2222)),
+                    PromoBannerItem("KIT RELAÇÃO", "EM PROMOÇÃO", "https://s.shopee.com.br/7fZOgLkL36", bannerRes = R.drawable.banner_relacao, neonColor = Color(0xFFFF6D00)),
+                    PromoBannerItem("CAPACETES", "EM PROMOÇÃO", "https://s.shopee.com.br/3g3FumMouO", bannerRes = R.drawable.banner_capacete, neonColor = Color(0xFFFF2222)),
+                    PromoBannerItem("INTERCOMUNICADOR", "EM PROMOÇÃO", "https://s.shopee.com.br/4qFDJF1V58", bannerRes = R.drawable.banner_intercom, neonColor = Color(0xFFD500F9)),
+                    PromoBannerItem("PNEUS DE MOTO", "EM PROMOÇÃO", "https://s.shopee.com.br/6fgrTWMGS9", bannerRes = R.drawable.promo_pneus, neonColor = Color(0xFF00E676))
                 )
             }
 
@@ -261,85 +261,16 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1117)),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
                     border = androidx.compose.foundation.BorderStroke(2.dp, currentPromo.neonColor.copy(alpha = blinkAlpha))
                 ) {
-                    Crossfade(targetState = currentPromo, label = "promoCrossfade") { promo ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Left: Product Photo or Icon with Glow Background
-                            Box(
-                                modifier = Modifier
-                                    .size(54.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(promo.neonColor.copy(alpha = 0.15f))
-                                    .border(1.dp, promo.neonColor.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (promo.imageRes != null) {
-                                    Image(
-                                        painter = painterResource(id = promo.imageRes),
-                                        contentDescription = promo.title,
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier.size(46.dp)
-                                    )
-                                } else if (promo.icon != null) {
-                                    Icon(
-                                        imageVector = promo.icon,
-                                        contentDescription = promo.title,
-                                        tint = promo.neonColor,
-                                        modifier = Modifier.size(34.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            // Middle: Texts
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = promo.title,
-                                    color = promo.neonColor,
-                                    fontWeight = FontWeight.Black,
-                                    fontStyle = FontStyle.Italic,
-                                    fontSize = 15.sp,
-                                    letterSpacing = 1.sp
-                                )
-                                Text(
-                                    text = promo.highlight,
-                                    color = Color(0xFFFFD700), // Yellow Gold
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontStyle = FontStyle.Italic,
-                                    fontSize = 17.sp
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                // CTA Mini Button Row
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .background(promo.neonColor, RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    Text(
-                                        text = "CLIQUE AQUI PARA VER",
-                                        color = Color.Black,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 10.sp
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.TouchApp,
-                                        contentDescription = null,
-                                        tint = Color.Black,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                            }
-                        }
+                    Crossfade(targetState = currentPromo, label = "promoBannerCrossfade") { promo ->
+                        Image(
+                            painter = painterResource(id = promo.bannerRes),
+                            contentDescription = promo.title,
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
 
@@ -349,14 +280,14 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp)
-                        .size(20.dp)
+                        .size(22.dp)
                         .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Fechar",
                         tint = Color.White,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
@@ -863,7 +794,6 @@ data class PromoBannerItem(
     val title: String,
     val highlight: String,
     val link: String,
-    val icon: ImageVector? = null,
-    val imageRes: Int? = null,
+    val bannerRes: Int,
     val neonColor: Color
 )
