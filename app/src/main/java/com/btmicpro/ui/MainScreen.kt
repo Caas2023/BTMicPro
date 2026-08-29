@@ -223,7 +223,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp)
-                    .clickable { uriHandler.openUri("https://s.shopee.com.br/6fgrR63WYV") }
+                    .clickable { uriHandler.openUri("https://s.shopee.com.br/6fgrTWMGS9") }
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
