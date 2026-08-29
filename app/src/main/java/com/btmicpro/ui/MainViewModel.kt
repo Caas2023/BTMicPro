@@ -86,17 +86,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun checkPromoPopup() {
         val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-        val savedDate = prefs.getString("promo_date", "")
-        var count = prefs.getInt("promo_count", 0)
+        val savedDate = prefs.getString("promo_date_v2", "")
+        var count = prefs.getInt("promo_count_v2", 0)
 
         if (today != savedDate) {
             count = 0
-            prefs.edit().putString("promo_date", today).apply()
+            prefs.edit().putString("promo_date_v2", today).apply()
         }
 
-        if (count < 2) {
+        // Para um banner de rodapé, podemos mostrar mais vezes (ex: 5x) 
+        // ou mostrar sempre até a pessoa clicar no X.
+        if (count < 5) {
             _showPromoPopup.value = true
-            prefs.edit().putInt("promo_count", count + 1).apply()
+            prefs.edit().putInt("promo_count_v2", count + 1).apply()
         }
     }
 
