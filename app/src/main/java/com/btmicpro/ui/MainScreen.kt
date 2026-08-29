@@ -1,5 +1,9 @@
 package com.btmicpro.ui
 
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import com.btmicpro.R
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -206,73 +210,45 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
         if (showPromoPopup) {
             val infiniteTransition = rememberInfiniteTransition(label = "blink")
             val blinkAlpha by infiniteTransition.animateFloat(
-                initialValue = 0.4f,
+                initialValue = 0.5f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(600, easing = FastOutSlowInEasing),
+                    animation = tween(800, easing = FastOutSlowInEasing),
                     repeatMode = RepeatMode.Reverse
                 ),
                 label = "blinkAlpha"
             )
 
-            Card(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp)
-                    .clickable { uriHandler.openUri("https://s.shopee.com.br/6fgrR63WYV") },
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF141A18)),
-                border = androidx.compose.foundation.BorderStroke(2.dp, PrimaryNeon.copy(alpha = blinkAlpha))
+                    .clickable { uriHandler.openUri("https://s.shopee.com.br/6fgrR63WYV") }
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, PrimaryNeon.copy(alpha = blinkAlpha))
                 ) {
-                    // Left Column: Icon + Text
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(end = 12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Speed, 
-                            contentDescription = "Pneu", 
-                            tint = PrimaryNeon, 
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Pneu de moto", color = Color.White, fontSize = 12.sp)
-                    }
+                    Image(
+                        painter = painterResource(id = R.drawable.promo_pneus),
+                        contentDescription = "Promoção de Pneus",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
-                    // Middle Column: Promo Texts
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "PROMOÇÃO\nSHOPEE", 
-                            color = Color.White, 
-                            fontWeight = FontWeight.ExtraBold, 
-                            fontSize = 18.sp,
-                            lineHeight = 20.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Ofertas Imperdíveis!", color = Color.LightGray, fontSize = 12.sp)
-                    }
-
-                    // Right Column: Button
-                    Button(
-                        onClick = { uriHandler.openUri("https://s.shopee.com.br/6fgrR63WYV") },
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryNeon.copy(alpha = blinkAlpha)),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text("OFERTA", color = Color.Black, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                    }
-
-                    // Close Button
-                    IconButton(
-                        onClick = { viewModel.dismissPromoPopup() }, 
-                        modifier = Modifier.size(24.dp).padding(start = 8.dp)
-                    ) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Fechar", tint = Color.Gray, modifier = Modifier.size(16.dp))
-                    }
+                // Close Button in top right corner
+                IconButton(
+                    onClick = { viewModel.dismissPromoPopup() }, 
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(24.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Fechar", tint = Color.White, modifier = Modifier.size(16.dp))
                 }
             }
         }
