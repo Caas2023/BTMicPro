@@ -46,6 +46,17 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsMotorsports
+import androidx.compose.material.icons.filled.Umbrella
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.HeadsetMic
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.animation.Crossfade
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.text.font.FontStyle
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -206,14 +217,36 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
             )
         }
 
-        // Optional Promotional Footer
+        // Dynamic Carousel Promotional Footer
         if (showPromoPopup) {
+            val promoList = remember {
+                listOf(
+                    PromoBannerItem("CAPACETES", "EM PROMOÇÃO", "https://s.shopee.com.br/3g3FumMouO", Icons.Default.SportsMotorsports, Color(0xFFFF3333)),
+                    PromoBannerItem("CAPA DE CHUVA", "EM PROMOÇÃO", "https://s.shopee.com.br/2gAij6Mj1r", Icons.Default.Umbrella, Color(0xFF00E5FF)),
+                    PromoBannerItem("KIT RELAÇÃO", "EM PROMOÇÃO", "https://s.shopee.com.br/7fZOgLkL36", Icons.Default.Build, Color(0xFFFF9100)),
+                    PromoBannerItem("INTERCOMUNICADOR", "EM PROMOÇÃO", "https://s.shopee.com.br/4qFDJF1V58", Icons.Default.HeadsetMic, Color(0xFFD500F9)),
+                    PromoBannerItem("PNEUS DE MOTO", "EM PROMOÇÃO", "https://s.shopee.com.br/6fgrTWMGS9", Icons.Default.Speed, Color(0xFF00E676))
+                )
+            }
+
+            var currentPromoIndex by remember { mutableIntStateOf(0) }
+
+            // Auto-rotate every 4 seconds
+            LaunchedEffect(Unit) {
+                while (true) {
+                    delay(4000)
+                    currentPromoIndex = (currentPromoIndex + 1) % promoList.size
+                }
+            }
+
+            val currentPromo = promoList[currentPromoIndex]
+
             val infiniteTransition = rememberInfiniteTransition(label = "blink")
             val blinkAlpha by infiniteTransition.animateFloat(
                 initialValue = 0.5f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(800, easing = FastOutSlowInEasing),
+                    animation = tween(600, easing = FastOutSlowInEasing),
                     repeatMode = RepeatMode.Reverse
                 ),
                 label = "blinkAlpha"
@@ -223,32 +256,98 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp)
-                    .clickable { uriHandler.openUri("https://s.shopee.com.br/6fgrTWMGS9") }
+                    .clickable { uriHandler.openUri(currentPromo.link) }
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                    border = androidx.compose.foundation.BorderStroke(2.dp, PrimaryNeon.copy(alpha = blinkAlpha))
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1117)),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, currentPromo.neonColor.copy(alpha = blinkAlpha))
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.promo_pneus),
-                        contentDescription = "Promoção de Pneus",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Crossfade(targetState = currentPromo, label = "promoCrossfade") { promo ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Left: Product Icon with Glow Background
+                            Box(
+                                modifier = Modifier
+                                    .size(54.dp)
+                                    .background(promo.neonColor.copy(alpha = 0.15f), CircleShape)
+                                    .border(1.dp, promo.neonColor.copy(alpha = 0.4f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = promo.icon,
+                                    contentDescription = promo.title,
+                                    tint = promo.neonColor,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            // Middle: Texts
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = promo.title,
+                                    color = promo.neonColor,
+                                    fontWeight = FontWeight.Black,
+                                    fontStyle = FontStyle.Italic,
+                                    fontSize = 15.sp,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = promo.highlight,
+                                    color = Color(0xFFFFD700), // Yellow Gold
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontStyle = FontStyle.Italic,
+                                    fontSize = 17.sp
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                // CTA Mini Button Row
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .background(promo.neonColor, RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = "CLIQUE AQUI PARA VER",
+                                        color = Color.Black,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 10.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.TouchApp,
+                                        contentDescription = null,
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Close Button in top right corner
                 IconButton(
-                    onClick = { viewModel.dismissPromoPopup() }, 
+                    onClick = { viewModel.dismissPromoPopup() },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .size(24.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                        .padding(6.dp)
+                        .size(20.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                 ) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Fechar", tint = Color.White, modifier = Modifier.size(16.dp))
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Fechar",
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
                 }
             }
         }
@@ -749,3 +848,11 @@ fun RecordingListItem(
         }
     }
 }
+
+data class PromoBannerItem(
+    val title: String,
+    val highlight: String,
+    val link: String,
+    val icon: ImageVector,
+    val neonColor: Color
+)
