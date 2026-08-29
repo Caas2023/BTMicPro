@@ -93,3 +93,22 @@
   - pp/src/main/java/com/btmicpro/ui/MainScreen.kt
   - docs/HISTORICO_E_STATUS.md
 - **Status**: ✅ Compilado com sucesso e sincronizado no GitHub.
+
+### 2026-08-29 02:05 (BRT) - Geração dos Banners Gráficos dos Produtos e Carrossel com Links Dedicados
+- **Descrição**:
+  1. Recortadas as fotos reais dos produtos (Capa de Chuva e Kit Relação Riffel Aço 1045) a partir das capturas da Shopee.
+  2. Gerados banners gráficos de alta resolução (1000x360) no mesmo estilo visual neon da arte de pneus:
+     - anner_capa_chuva.png: Foto real do conjunto + Tema Vermelho/Amarelo + Link https://s.shopee.com.br/2gAij6Mj1r
+     - anner_relacao.png: Foto real do Kit Riffel + Tema Laranja/Amarelo + Link https://s.shopee.com.br/7fZOgLkL36
+     - anner_capacete.png: Arte Capacete + Tema Vermelho/Amarelo + Link https://s.shopee.com.br/3g3FumMouO
+     - anner_intercom.png: Arte Intercomunicador + Tema Roxo/Amarelo + Link https://s.shopee.com.br/4qFDJF1V58
+     - promo_pneus.jpg: Arte Pneus de Moto + Tema Verde/Amarelo + Link https://s.shopee.com.br/6fgrTWMGS9
+  3. Carrossel dinâmico no Jetpack Compose alternando as imagens completas a cada 4 segundos com transição suave e borda neon pulsante.
+- **Arquivos Afetados**:
+  - pp/src/main/res/drawable/banner_capa_chuva.png
+  - pp/src/main/res/drawable/banner_relacao.png
+  - pp/src/main/res/drawable/banner_capacete.png
+  - pp/src/main/res/drawable/banner_intercom.png
+  - pp/src/main/java/com/btmicpro/ui/MainScreen.kt
+  - docs/HISTORICO_E_STATUS.md
+- **Status**: ✅ Compilado, gerado APK e sincronizado no repositório GitHub.
