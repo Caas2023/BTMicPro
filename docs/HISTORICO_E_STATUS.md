@@ -61,3 +61,19 @@
 - **Descrição**: O usuário questionou se o app estava pronto. O código-fonte está concluído na pasta do projeto, porém, devido à ausência do Android SDK e Java no terminal, foi orientado a baixar o Android Studio para gerar o arquivo `.apk` de instalação.
 - **Arquivos Afetados**: `docs/HISTORICO_E_STATUS.md`
 - **Status**: ⏳ Aguardando confirmação do usuário sobre o ambiente de compilação (se já possui Android Studio ou se precisa de guia de instalação).
+
+### 2026-08-29 01:15 (BRT) - Implementação do Raw Audio Mode, UI Renovada, Promoção Shopee e Versionamento
+- **Descrição**: 
+  1. Adicionado o 'Raw Audio Mode' baseado no 'Noise Uncanceller' (forçando AudioSource.UNPROCESSED e desabilitando cancelamento de hardware) para evitar cortes de voz pelo vento na moto.
+  2. Implementado reforço automático de volume (100% no In-Call e Music) ao iniciar o modo de roteamento.
+  3. Redesign completo da tela principal (estilo neon verde e dark mode com botão circular central).
+  4. Implementação de Banner Promocional de Rodapé (Shopee) clicável, exibido de forma inteligente (respeitando limite de exibições/sessão).
+  5. Versionamento do app introduzido (versão 1.0.2 no gradle e visível na UI).
+  6. Sincronização limpa com o repositório GitHub sem arquivos temporários pesados.
+- **Arquivos Afetados**: 
+  - pp/build.gradle.kts (Versão 1.0.2)
+  - pp/src/main/java/com/btmicpro/core/AudioCaptureEngine.kt (Raw Audio Mode)
+  - pp/src/main/java/com/btmicpro/core/BluetoothAudioRouter.kt (Boost de volume)
+  - pp/src/main/java/com/btmicpro/ui/MainViewModel.kt (Controle do popup)
+  - pp/src/main/java/com/btmicpro/ui/MainScreen.kt (Novo layout, versão na tela e botão redimensionado)
+- **Status**: ✅ Compilado, gerado APK (app-debug.apk / BTMicPro.apk) e código sincronizado no GitHub.

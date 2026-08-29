@@ -138,7 +138,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v1.0.1",
+                text = "v1.0.2",
                 color = Color.Gray,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
