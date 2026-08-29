@@ -216,25 +216,26 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                 border = androidx.compose.foundation.BorderStroke(2.dp, PrimaryNeon)
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(20.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Icon(imageVector = Icons.Default.Speed, contentDescription = "Pneu", tint = PrimaryNeon, modifier = Modifier.size(40.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Icon(imageVector = Icons.Default.Speed, contentDescription = "Pneu", tint = PrimaryNeon, modifier = Modifier.size(60.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("PROMOÇÃO SHOPEE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Pneu de moto em oferta!", color = Color.LightGray, fontSize = 12.sp)
+                        Text("Promoções de pneu", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Ofertas exclusivas na Shopee!", color = Color.LightGray, fontSize = 14.sp)
                     }
                     Button(
                         onClick = { uriHandler.openUri("https://s.shopee.com.br/6fgrR63WYV") },
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryNeon),
-                        modifier = Modifier.height(36.dp)
+                        modifier = Modifier.height(48.dp)
                     ) {
-                        Text("VER", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("VER", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
-                    IconButton(onClick = { viewModel.dismissPromoPopup() }, modifier = Modifier.size(24.dp).padding(start = 4.dp)) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Fechar", tint = Color.Gray)
+                    IconButton(onClick = { viewModel.dismissPromoPopup() }, modifier = Modifier.size(32.dp).padding(start = 8.dp)) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Fechar", tint = Color.Gray, modifier = Modifier.size(24.dp))
                     }
                 }
             }
