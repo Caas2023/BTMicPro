@@ -121,7 +121,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
             horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Bottom
         ) {
             Text(
                 text = "BT Mic Pro",
@@ -130,7 +130,20 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                 fontWeight = FontWeight.ExtraBold
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Icon(imageVector = Icons.Default.Mic, contentDescription = null, tint = PrimaryNeon)
+            Icon(
+                imageVector = Icons.Default.Mic, 
+                contentDescription = null, 
+                tint = PrimaryNeon,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "v1.0.1",
+                color = Color.Gray,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
         }
 
         Spacer(modifier = Modifier.height(32.dp))
