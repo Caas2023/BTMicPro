@@ -204,38 +204,74 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
 
         // Optional Promotional Footer
         if (showPromoPopup) {
+            val infiniteTransition = rememberInfiniteTransition(label = "blink")
+            val blinkAlpha by infiniteTransition.animateFloat(
+                initialValue = 0.4f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(600, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "blinkAlpha"
+            )
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp)
-                    .clickable { 
-                        uriHandler.openUri("https://s.shopee.com.br/6fgrR63WYV")
-                    },
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
-                border = androidx.compose.foundation.BorderStroke(2.dp, PrimaryNeon)
+                    .clickable { uriHandler.openUri("https://s.shopee.com.br/6fgrR63WYV") },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141A18)),
+                border = androidx.compose.foundation.BorderStroke(2.dp, PrimaryNeon.copy(alpha = blinkAlpha))
             ) {
                 Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(imageVector = Icons.Default.Speed, contentDescription = "Pneu", tint = PrimaryNeon, modifier = Modifier.size(60.dp))
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Promoções de pneu", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    // Left Column: Icon + Text
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(end = 12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Speed, 
+                            contentDescription = "Pneu", 
+                            tint = PrimaryNeon, 
+                            modifier = Modifier.size(48.dp)
+                        )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("Ofertas exclusivas na Shopee!", color = Color.LightGray, fontSize = 14.sp)
+                        Text("Pneu de moto", color = Color.White, fontSize = 12.sp)
                     }
+
+                    // Middle Column: Promo Texts
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "PROMOÇÃO\nSHOPEE", 
+                            color = Color.White, 
+                            fontWeight = FontWeight.ExtraBold, 
+                            fontSize = 18.sp,
+                            lineHeight = 20.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Ofertas Imperdíveis!", color = Color.LightGray, fontSize = 12.sp)
+                    }
+
+                    // Right Column: Button
                     Button(
                         onClick = { uriHandler.openUri("https://s.shopee.com.br/6fgrR63WYV") },
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryNeon),
-                        modifier = Modifier.height(48.dp)
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryNeon.copy(alpha = blinkAlpha)),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        Text("VER", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("OFERTA", color = Color.Black, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                     }
-                    IconButton(onClick = { viewModel.dismissPromoPopup() }, modifier = Modifier.size(32.dp).padding(start = 8.dp)) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Fechar", tint = Color.Gray, modifier = Modifier.size(24.dp))
+
+                    // Close Button
+                    IconButton(
+                        onClick = { viewModel.dismissPromoPopup() }, 
+                        modifier = Modifier.size(24.dp).padding(start = 8.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Fechar", tint = Color.Gray, modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -370,12 +406,12 @@ fun RouterControlCard(
     )
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .size(190.dp)
+                .size(160.dp)
                 .clip(CircleShape)
                 .background(if (isRouterEnabled) PrimaryNeon.copy(alpha = 0.15f) else Color.DarkGray.copy(alpha = 0.3f))
                 .border(
@@ -391,33 +427,33 @@ fun RouterControlCard(
                     imageVector = Icons.Default.PowerSettingsNew,
                     contentDescription = null,
                     tint = statusColor,
-                    modifier = Modifier.size(48.dp).padding(bottom = 4.dp)
+                    modifier = Modifier.size(40.dp).padding(bottom = 2.dp)
                 )
                 Text(
                     text = "MOTO",
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Black,
                     color = statusColor,
-                    fontSize = 28.sp
+                    fontSize = 24.sp
                 )
                 Text(
                     text = "WHATSAPP",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
-                    fontSize = 20.sp
+                    fontSize = 18.sp
                 )
                 Text(
                     text = "MODE",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
-                    fontSize = 16.sp
+                    fontSize = 14.sp
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
