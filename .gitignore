@@ -1,0 +1,34 @@
+# Segredos e variáveis de ambiente
+.env
+.env.*
+*.keystore
+*.jks
+signing.properties
+local.properties
+
+# Builds e artefatos
+/build/
+/app/build/
+*.apk
+*.aab
+*.ap_
+
+# Dependências e cache
+.gradle/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Cache de IA e agentes
+.agents/
+.gemini/
+.opencode/
+graphify-out/
+
+# Logs
+*.log
+android_sdk/
+gradle-8.9/
+*.zip
+jdk-17.0.2/
