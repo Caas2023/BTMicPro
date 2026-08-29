@@ -369,12 +369,12 @@ fun RouterControlCard(
     )
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .size(260.dp)
+                .size(190.dp)
                 .clip(CircleShape)
                 .background(if (isRouterEnabled) PrimaryNeon.copy(alpha = 0.15f) else Color.DarkGray.copy(alpha = 0.3f))
                 .border(
@@ -390,28 +390,28 @@ fun RouterControlCard(
                     imageVector = Icons.Default.PowerSettingsNew,
                     contentDescription = null,
                     tint = statusColor,
-                    modifier = Modifier.size(64.dp).padding(bottom = 8.dp)
+                    modifier = Modifier.size(48.dp).padding(bottom = 4.dp)
                 )
                 Text(
                     text = "MOTO",
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Black,
                     color = statusColor,
-                    fontSize = 32.sp
+                    fontSize = 28.sp
                 )
                 Text(
                     text = "WHATSAPP",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
-                    fontSize = 24.sp
+                    fontSize = 20.sp
                 )
                 Text(
                     text = "MODE",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
-                    fontSize = 20.sp
+                    fontSize = 16.sp
                 )
             }
         }
