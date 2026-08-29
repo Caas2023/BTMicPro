@@ -221,11 +221,11 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
         if (showPromoPopup) {
             val promoList = remember {
                 listOf(
-                    PromoBannerItem("CAPACETES", "EM PROMOÇÃO", "https://s.shopee.com.br/3g3FumMouO", Icons.Default.SportsMotorsports, Color(0xFFFF3333)),
-                    PromoBannerItem("CAPA DE CHUVA", "EM PROMOÇÃO", "https://s.shopee.com.br/2gAij6Mj1r", Icons.Default.Umbrella, Color(0xFF00E5FF)),
-                    PromoBannerItem("KIT RELAÇÃO", "EM PROMOÇÃO", "https://s.shopee.com.br/7fZOgLkL36", Icons.Default.Build, Color(0xFFFF9100)),
-                    PromoBannerItem("INTERCOMUNICADOR", "EM PROMOÇÃO", "https://s.shopee.com.br/4qFDJF1V58", Icons.Default.HeadsetMic, Color(0xFFD500F9)),
-                    PromoBannerItem("PNEUS DE MOTO", "EM PROMOÇÃO", "https://s.shopee.com.br/6fgrTWMGS9", Icons.Default.Speed, Color(0xFF00E676))
+                    PromoBannerItem("CAPACETES", "EM PROMOÇÃO", "https://s.shopee.com.br/3g3FumMouO", icon = Icons.Default.SportsMotorsports, neonColor = Color(0xFFFF3333)),
+                    PromoBannerItem("CAPA DE CHUVA", "EM PROMOÇÃO", "https://s.shopee.com.br/2gAij6Mj1r", imageRes = R.drawable.promo_capa_chuva, neonColor = Color(0xFF00E5FF)),
+                    PromoBannerItem("KIT RELAÇÃO", "EM PROMOÇÃO", "https://s.shopee.com.br/7fZOgLkL36", icon = Icons.Default.Build, neonColor = Color(0xFFFF9100)),
+                    PromoBannerItem("INTERCOMUNICADOR", "EM PROMOÇÃO", "https://s.shopee.com.br/4qFDJF1V58", icon = Icons.Default.HeadsetMic, neonColor = Color(0xFFD500F9)),
+                    PromoBannerItem("PNEUS DE MOTO", "EM PROMOÇÃO", "https://s.shopee.com.br/6fgrTWMGS9", icon = Icons.Default.Speed, neonColor = Color(0xFF00E676))
                 )
             }
 
@@ -271,20 +271,30 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Left: Product Icon with Glow Background
+                            // Left: Product Photo or Icon with Glow Background
                             Box(
                                 modifier = Modifier
                                     .size(54.dp)
-                                    .background(promo.neonColor.copy(alpha = 0.15f), CircleShape)
-                                    .border(1.dp, promo.neonColor.copy(alpha = 0.4f), CircleShape),
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(promo.neonColor.copy(alpha = 0.15f))
+                                    .border(1.dp, promo.neonColor.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = promo.icon,
-                                    contentDescription = promo.title,
-                                    tint = promo.neonColor,
-                                    modifier = Modifier.size(34.dp)
-                                )
+                                if (promo.imageRes != null) {
+                                    Image(
+                                        painter = painterResource(id = promo.imageRes),
+                                        contentDescription = promo.title,
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.size(46.dp)
+                                    )
+                                } else if (promo.icon != null) {
+                                    Icon(
+                                        imageVector = promo.icon,
+                                        contentDescription = promo.title,
+                                        tint = promo.neonColor,
+                                        modifier = Modifier.size(34.dp)
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.width(12.dp))
@@ -853,6 +863,7 @@ data class PromoBannerItem(
     val title: String,
     val highlight: String,
     val link: String,
-    val icon: ImageVector,
+    val icon: ImageVector? = null,
+    val imageRes: Int? = null,
     val neonColor: Color
 )
