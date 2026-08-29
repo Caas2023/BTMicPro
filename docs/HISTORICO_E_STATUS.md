@@ -77,3 +77,19 @@
   - pp/src/main/java/com/btmicpro/ui/MainViewModel.kt (Controle do popup)
   - pp/src/main/java/com/btmicpro/ui/MainScreen.kt (Novo layout, versão na tela e botão redimensionado)
 - **Status**: ✅ Compilado, gerado APK (app-debug.apk / BTMicPro.apk) e código sincronizado no GitHub.
+
+### 2026-08-29 01:55 (BRT) - Implementação do Carrossel Dinâmico de Promoções (5 Produtos com Links de Afiliado)
+- **Descrição**:
+  1. Implementação de sistema rotatório (Carrossel com Crossfade a cada 4 segundos) no rodapé do app.
+  2. Inclusão dos 5 produtos com links de afiliados individuais:
+     - **Capacetes**: https://s.shopee.com.br/3g3FumMouO (Tema Vermelho Neon)
+     - **Capa de Chuva**: https://s.shopee.com.br/2gAij6Mj1r (Tema Ciano Neon)
+     - **Kit Relação**: https://s.shopee.com.br/7fZOgLkL36 (Tema Laranja Neon)
+     - **Intercomunicador**: https://s.shopee.com.br/4qFDJF1V58 (Tema Roxo Neon)
+     - **Pneus de Moto**: https://s.shopee.com.br/6fgrTWMGS9 (Tema Verde Neon)
+  3. Efeito de borda pulsante/piscante mantido de acordo com a cor do produto ativo.
+  4. Redirecionamento dinâmico: o clique abre exatamente o link do produto que está sendo exibido na tela no momento.
+- **Arquivos Afetados**:
+  - pp/src/main/java/com/btmicpro/ui/MainScreen.kt
+  - docs/HISTORICO_E_STATUS.md
+- **Status**: ✅ Compilado com sucesso e sincronizado no GitHub.
