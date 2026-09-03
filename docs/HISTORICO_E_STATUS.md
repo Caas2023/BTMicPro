@@ -225,6 +225,34 @@
   - `BTMicPro.apk`
   - `BTMicPro_v1.4.0_V4.apk`
   - `docs/HISTORICO_E_STATUS.md`
-- **Status**: ✅ 100% implementado, testado com testes unitários JUnit verdes, build validado e pronto para uso no aparelho.
+### 2026-09-02 22:26 (BRT) — Remoção Completa do Gravador Interno & Foco Exclusivo no WhatsApp e Áudio para Motociclistas
+- **Descrição**:
+  1. **Remoção de Componentes de Gravação Interna**:
+     - Deletados `RecordingService.kt`, `AudioFileManager.kt` e `AudioCaptureEngine.kt`.
+     - Removido `file_paths.xml`, `<provider androidx.core.content.FileProvider>` e a permissão `WRITE_EXTERNAL_STORAGE` do `AndroidManifest.xml`.
+     - Removidas classes `RecordingState` e `RecordingItem` de `RouterState.kt`.
+     - Removidas todas as referências a listas de arquivos locais, players de reprodução e botões de gravação do `MainViewModel.kt` e `strings.xml`.
+  2. **Arquitetura 100% Focada e Enxuta**:
+     - **Função 1 (Ligar o microfone para WhatsApp)**: `BluetoothAudioRouter.kt` com máquina de estados de 8 estágios, `DeviceCompatibilityManager.kt` para Cubot KingKong X Pro e `SilentAudioKeeper.kt` mantendo o canal SCO permanentemente engajado com zero delay e sem cortes.
+     - **Função 2 (Melhorar o áudio para mandar)**: `VoiceProcessingEngine.kt` com DC block, passa-alta adaptativo Butterworth 4ª ordem, detector espectral de vento, expansor suave RMS, dynamic EQ, AGC, compressor, limiter e 5 presets de motociclista.
+     - **Função 3 (Melhorar o áudio para ouvir)**: `MediaBooster.kt` (Modo Bar) com LoudnessEnhancer e Equalizador vocal de saída na sessão global 0 para ouvir áudios e chamadas do WhatsApp mesmo com vento forte e escapamento.
+     - **Função 4 (Monitoramento ao vivo & Diagnóstico)**: `LiveAudioMonitor.kt` (Hear-Through) e painel Developer Audio Diagnostics.
+  3. **Build & Validação**:
+     - Testes unitários JUnit verdes (`BUILD SUCCESSFUL in 26s`).
+     - Compilação do APK concluída (`BUILD SUCCESSFUL in 17s`).
+     - Novo APK gerado e copiado na raiz: `BTMicPro.apk` e `BTMicPro_v1.4.0_V4.apk`.
+- **Arquivos Afetados**:
+  - `app/src/main/java/com/btmicpro/service/RecordingService.kt` [REMOVIDO]
+  - `app/src/main/java/com/btmicpro/core/AudioFileManager.kt` [REMOVIDO]
+  - `app/src/main/java/com/btmicpro/core/AudioCaptureEngine.kt` [REMOVIDO]
+  - `app/src/main/res/xml/file_paths.xml` [REMOVIDO]
+  - `app/src/main/AndroidManifest.xml`
+  - `app/src/main/java/com/btmicpro/core/RouterState.kt`
+  - `app/src/main/java/com/btmicpro/ui/MainViewModel.kt`
+  - `app/src/main/res/values/strings.xml`
+  - `docs/HISTORICO_E_STATUS.md`
+  - `BTMicPro.apk`
+  - `BTMicPro_v1.4.0_V4.apk`
+- **Status**: ✅ 100% limpo, compilado e validado.
 
 

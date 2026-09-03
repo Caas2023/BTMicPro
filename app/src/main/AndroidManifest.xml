@@ -37,11 +37,6 @@
     <!-- Permissão para inicialização automática após boot do sistema -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Permissão de gravação no armazenamento legado (Android 9 ou inferior) -->
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
-
     <application
         android:name=".BtMicProApp"
         android:allowBackup="true"
@@ -68,12 +63,6 @@
             android:name=".service.BtMicService"
             android:exported="false"
             android:foregroundServiceType="microphone|connectedDevice" />
-
-        <!-- Serviço de Gravação com IA / DSP (Modo Gravador) -->
-        <service
-            android:name=".service.RecordingService"
-            android:exported="false"
-            android:foregroundServiceType="microphone" />
 
         <!-- Botão Flutuante Sobreposto (opcional) -->
         <service
@@ -110,17 +99,6 @@
                 <action android:name="android.media.SCO_AUDIO_STATE_CHANGED" />
             </intent-filter>
         </receiver>
-
-        <!-- FileProvider para compartilhamento direto de áudios com o WhatsApp -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
 
     </application>
 

@@ -72,35 +72,3 @@ sealed class RouterState {
     data class RoutingActive(val device: BluetoothDeviceInfo) : RouterState()
     data class Error(val message: String) : RouterState()
 }
-
-/**
- * Representação do estado do Gravador de Áudio com IA / DSP.
- */
-sealed class RecordingState {
-    data object Idle : RecordingState()
-
-    data class Recording(
-        val durationMs: Long,
-        val amplitude: Float,
-        val deviceName: String
-    ) : RecordingState()
-
-    data class Finished(
-        val filePath: String,
-        val durationMs: Long
-    ) : RecordingState()
-
-    data class Error(val message: String) : RecordingState()
-}
-
-/**
- * Modelo de item para o histórico de gravações salvas.
- */
-data class RecordingItem(
-    val id: String,
-    val fileName: String,
-    val filePath: String,
-    val timestamp: Long,
-    val durationMs: Long,
-    val isProcessedWithAi: Boolean = true
-)

@@ -7,20 +7,15 @@ import android.media.AudioManager
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.btmicpro.core.AudioCaptureEngine
 import com.btmicpro.core.AudioDiagnosticsData
-import com.btmicpro.core.AudioFileManager
 import com.btmicpro.core.DeviceCompatibilityManager
 import com.btmicpro.core.LiveAudioMonitor
 import com.btmicpro.core.MediaBooster
-import com.btmicpro.core.RecordingItem
-import com.btmicpro.core.RecordingState
 import com.btmicpro.core.RiderAudioPreset
 import com.btmicpro.core.RouterState
 import com.btmicpro.receiver.BootReceiver
 import com.btmicpro.service.BtMicService
 import com.btmicpro.service.FloatingButtonService
-import com.btmicpro.service.RecordingService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,10 +23,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel principal do BT Mic Pro V4.
- *
- * Integra a máquina de estados de 8 estágios, presets de áudio para motociclistas,
- * monitor ao vivo em tempo real e painel Developer Audio Diagnostics.
+ * MainViewModel — Focado exclusivamente em:
+ * 1. Roteamento de Microfone Bluetooth SCO para o WhatsApp (com Zero Delay via SilentAudioKeeper).
+ * 2. Processamento DSP de Voz e Vento para Motociclistas (VoiceProcessingEngine V4).
+ * 3. Aumentador de Volume de Mídia / Chamada (MediaBooster - Modo Bar).
+ * 4. Monitor de Áudio ao Vivo (Hear-Through para calibração de voz).
+ * 5. Diagnóstico de Áudio em tempo real.
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -39,13 +36,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = context.getSharedPreferences(BootReceiver.PREFS_NAME, Context.MODE_PRIVATE)
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-    val audioFileManager = AudioFileManager(context)
-    val audioCaptureEngine = AudioCaptureEngine(context, viewModelScope, audioFileManager)
     val mediaBooster = MediaBooster(context)
     val liveAudioMonitor = LiveAudioMonitor(context, viewModelScope)
 
     val routerState: StateFlow<RouterState> = com.btmicpro.core.RouterStateHolder.routerState
-    val recordingState: StateFlow<RecordingState> = audioCaptureEngine.recordingState
     val isLiveMonitorEnabled: StateFlow<Boolean> = liveAudioMonitor.isMonitoring
 
     private val _isRouterEnabled = MutableStateFlow(false)
@@ -67,21 +61,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val showDiagnosticsDialog: StateFlow<Boolean> = _showDiagnosticsDialog.asStateFlow()
 
     private val _isBarModeEnabled = MutableStateFlow(false)
+    val isBarModeEnabled: StateFlow<Boolean> = _isBarModeEnabled.asStateFlow()
+
     private val _isFloatingButtonEnabled = MutableStateFlow(false)
     val isFloatingButtonEnabled: StateFlow<Boolean> = _isFloatingButtonEnabled.asStateFlow()
-    val isBarModeEnabled: StateFlow<Boolean> = _isBarModeEnabled.asStateFlow()
 
     private val _barBoostLevel = MutableStateFlow(80)
     val barBoostLevel: StateFlow<Int> = _barBoostLevel.asStateFlow()
 
     private val _autoStartOnBoot = MutableStateFlow(true)
     val autoStartOnBoot: StateFlow<Boolean> = _autoStartOnBoot.asStateFlow()
-
-    private val _recordingsList = MutableStateFlow<List<RecordingItem>>(emptyList())
-    val recordingsList: StateFlow<List<RecordingItem>> = _recordingsList.asStateFlow()
-
-    private val _currentlyPlayingPath = MutableStateFlow<String?>(null)
-    val currentlyPlayingPath: StateFlow<String?> = _currentlyPlayingPath.asStateFlow()
 
     private val _showPromoPopup = MutableStateFlow(false)
     val showPromoPopup: StateFlow<Boolean> = _showPromoPopup.asStateFlow()
@@ -93,7 +82,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val savedPresetIndex = prefs.getInt("rider_preset_index", 0)
         _selectedPreset.value = RiderAudioPreset.values().getOrElse(savedPresetIndex) { RiderAudioPreset.NORMAL }
-        audioCaptureEngine.setPreset(_selectedPreset.value)
 
         _isBarModeEnabled.value = prefs.getBoolean("bar_mode_enabled", false)
         _isFloatingButtonEnabled.value = prefs.getBoolean("floating_button_enabled", false)
@@ -120,23 +108,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (wasEnabled && !com.btmicpro.core.RouterStateHolder.isServiceRunning.value) {
             startRouterService()
         }
-
-        viewModelScope.launch {
-            audioCaptureEngine.recordingState.collect { state ->
-                if (state is RecordingState.Finished) {
-                    loadRecordings()
-                    RecordingService.stop(context)
-                }
-            }
-        }
-
-        loadRecordings()
     }
 
     fun setRiderPreset(preset: RiderAudioPreset) {
         _selectedPreset.value = preset
         prefs.edit().putInt("rider_preset_index", preset.ordinal).apply()
-        audioCaptureEngine.setPreset(preset)
         if (liveAudioMonitor.isMonitoring.value) {
             liveAudioMonitor.stopMonitoring()
             liveAudioMonitor.startMonitoring(_denoiseIntensity.value, _isRawAudioMode.value, preset = preset)
@@ -357,27 +333,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startRouterService() { BtMicService.start(context) }
     private fun stopRouterService() { BtMicService.stop(context) }
 
-    fun startRecording() {
-        val currentDeviceName = when (val state = routerState.value) {
-            is RouterState.RoutingVerified -> state.device.name
-            is RouterState.ScoActive -> state.device.name
-            is RouterState.RoutingActive -> state.device.name
-            else -> if (_isRouterEnabled.value) "Fone Bluetooth (via Service)" else "Microfone do Sistema"
-        }
-        RecordingService.start(context)
-        audioCaptureEngine.startRecording(
-            deviceName = currentDeviceName,
-            noiseDenoiseLevel = _denoiseIntensity.value,
-            rawAudioMode = _isRawAudioMode.value,
-            preset = _selectedPreset.value
-        )
-    }
-
-    fun stopRecording() { 
-        audioCaptureEngine.stopRecording()
-        RecordingService.stop(context) 
-    }
-
     fun setDenoiseIntensity(level: Float) { 
         _denoiseIntensity.value = level
         prefs.edit().putFloat(BootReceiver.KEY_DENOISE_LEVEL, level).apply() 
@@ -388,36 +343,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean(BootReceiver.KEY_AUTO_START, enabled).apply() 
     }
 
-    fun loadRecordings() { 
-        viewModelScope.launch { 
-            _recordingsList.value = audioFileManager.getSavedRecordings() 
-        } 
-    }
-
-    fun deleteRecording(item: RecordingItem) {
-        viewModelScope.launch {
-            if (_currentlyPlayingPath.value == item.filePath) { 
-                audioFileManager.stopPlayback()
-                _currentlyPlayingPath.value = null 
-            }
-            audioFileManager.deleteRecording(item.filePath)
-            loadRecordings()
-        }
-    }
-
-    fun shareAudioToWhatsApp(filePath: String) { 
-        audioFileManager.shareAudioToWhatsApp(filePath) 
-    }
-
-    fun togglePlayback(item: RecordingItem) {
-        val isPlaying = audioFileManager.togglePlayback(item.filePath) { _currentlyPlayingPath.value = null }
-        _currentlyPlayingPath.value = if (isPlaying) item.filePath else null
-    }
-
     override fun onCleared() { 
         super.onCleared()
         liveAudioMonitor.stopMonitoring()
-        audioFileManager.stopPlayback()
         mediaBooster.release() 
     }
 }

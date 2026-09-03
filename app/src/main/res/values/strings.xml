@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">BT Mic Pro</string>
-    <string name="app_description">Roteador e Gravador Inteligente de Microfone Bluetooth</string>
+    <string name="app_description">Roteador e Otimizador de Microfone Bluetooth para WhatsApp</string>
 
     <!-- Notificações -->
     <string name="notification_channel_name">Serviço de Roteamento de Microfone</string>
@@ -12,12 +12,6 @@
     <string name="notification_desc_waiting">Conecte seu fone de ouvido para ativar o roteamento</string>
     <string name="notification_action_stop">Desativar</string>
 
-    <string name="rec_notification_channel_name">Gravação de Áudio com IA</string>
-    <string name="rec_notification_channel_desc">Gravando áudio com cancelamento de ruído e proteção contra vento</string>
-    <string name="rec_notification_title">🎙️ Gravando com Tratamento de Áudio…</string>
-    <string name="rec_notification_desc">Processando em tempo real com DSP e supressão de ruído</string>
-    <string name="rec_notification_stop">Parar Gravação</string>
-
     <!-- Estados da UI -->
     <string name="status_inactive">Serviço Desativado</string>
     <string name="status_waiting">Aguardando Conexão Bluetooth…</string>
@@ -27,14 +21,9 @@
     <!-- Ações e Botões -->
     <string name="btn_start_router">Ativar Modo WhatsApp</string>
     <string name="btn_stop_router">Desativar Roteamento</string>
-    <string name="btn_record_start">Iniciar Gravação com IA</string>
-    <string name="btn_record_stop">Parar Gravação</string>
-    <string name="btn_share_whatsapp">Enviar no WhatsApp</string>
-    <string name="btn_play">Ouvir</string>
-    <string name="btn_pause">Pausar</string>
-    <string name="btn_delete">Excluir</string>
+    
     <!-- Labels UI -->
-    <string name="app_version_label">v1.1.4</string>
+    <string name="app_version_label">v1.4.0 V4</string>
     <string name="mode_raw_audio_title">RAW AUDIO MODE</string>
     <string name="mode_raw_audio_desc">Bypass DSP para não cortar voz no vento forte</string>
     <string name="mode_boot_title">Iniciar com o Celular</string>
