@@ -28,13 +28,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +51,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -62,6 +70,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.btmicpro.R
+import com.btmicpro.core.AudioDiagnosticsData
+import com.btmicpro.core.RiderAudioPreset
 import com.btmicpro.core.RouterState
 import com.btmicpro.ui.theme.AccentRed
 import com.btmicpro.ui.theme.PrimaryNeon
@@ -90,6 +100,10 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
     val isBarModeEnabled by viewModel.isBarModeEnabled.collectAsState()
     val isFloatingButtonEnabled by viewModel.isFloatingButtonEnabled.collectAsState()
     val barBoostLevel by viewModel.barBoostLevel.collectAsState()
+    val selectedPreset by viewModel.selectedPreset.collectAsState()
+    val showDiagnostics by viewModel.showDiagnosticsDialog.collectAsState()
+    val diagnosticsData by viewModel.diagnosticsData.collectAsState()
+
     val uriHandler = LocalUriHandler.current
     val scrollState = rememberScrollState()
 
@@ -123,7 +137,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v1.2.0 Pro",
+                text = "v1.4.0 V4",
                 color = Color.Gray,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
@@ -131,7 +145,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Info Header
         Row(
@@ -139,17 +153,17 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("RIDER 1", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("[CleanVoice DSP]", color = Color.Gray, fontSize = 14.sp)
+                Text("ENGINE DSP", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("[V4 Modular]", color = Color.Gray, fontSize = 13.sp)
             }
-            Box(modifier = Modifier.width(1.dp).height(40.dp).background(Color.DarkGray))
+            Box(modifier = Modifier.width(1.dp).height(36.dp).background(Color.DarkGray))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("PHONE", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("[KingKong X Pro]", color = Color.Gray, fontSize = 14.sp)
+                Text("DISPOSITIVO", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("[KingKong X Pro]", color = Color.Gray, fontSize = 13.sp)
             }
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         // Botão Central de Roteamento (MOTO WHATSAPP MODE)
         RouterControlCard(
@@ -158,9 +172,65 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
             onToggleRouter = { viewModel.toggleRouter(it) }
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // === NOVO: MONITOR AO VIVO / OUVIDO NO CAPACETE (Estilo Noise Uncanceller) ===
+        // === NOVO NA V4: SELETOR DE PRESETS DO MOTOCICLISTA ===
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.DarkGray)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    "PERFIL DE ÁUDIO DO MOTOCICLISTA 🏍️",
+                    color = PrimaryNeon,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+                Text(
+                    selectedPreset.description,
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    RiderAudioPreset.values().forEach { preset ->
+                        val isSelected = preset == selectedPreset
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.setRiderPreset(preset) },
+                            label = { 
+                                Text(
+                                    preset.displayName, 
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                ) 
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = PrimaryNeon.copy(alpha = 0.25f),
+                                selectedLabelColor = PrimaryNeon,
+                                containerColor = Color(0xFF252525),
+                                labelColor = Color.LightGray
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isSelected,
+                                borderColor = if (isSelected) PrimaryNeon else Color.DarkGray
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // === MONITOR AO VIVO / OUVIDO NO CAPACETE (Estilo Noise Uncanceller) ===
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
@@ -184,7 +254,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
                             fontSize = 13.sp
                         )
                         Text(
-                            if (isLiveMonitorEnabled) "Monitorando áudio com CleanVoice DSP (Sem cortes)"
+                            if (isLiveMonitorEnabled) "Monitorando áudio com VoiceProcessingEngine V4"
                             else "Escute seu microfone em tempo real para regular antes de rodar",
                             color = Color.Gray,
                             fontSize = 10.sp
@@ -226,7 +296,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Toggles lado a lado para economizar espaço
+        // Toggles: RAW Audio e Auto Iniciar
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -335,7 +405,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Botão Flutuante", color = if (isFloatingButtonEnabled) PrimaryNeon else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text("Botão Flutuante Sobreposto", color = if (isFloatingButtonEnabled) PrimaryNeon else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             Switch(
                 checked = isFloatingButtonEnabled,
                 onCheckedChange = { viewModel.toggleFloatingButton(it) },
@@ -346,6 +416,20 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
                     uncheckedTrackColor = Color.DarkGray
                 )
             )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // === BOTÃO DIAGNÓSTICO DO DESENVOLVEDOR (AUDIO DIAGNOSTICS) ===
+        Button(
+            onClick = { viewModel.openDiagnostics() },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2B2B2B)),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Icon(Icons.Default.Assessment, contentDescription = null, tint = PrimaryNeon)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("DIAGNÓSTICO DE ÁUDIO & DISPOSITIVO 🛠️", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -424,6 +508,71 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
             }
         }
     }
+
+    // Modal de Diagnóstico do Desenvolvedor
+    if (showDiagnostics && diagnosticsData != null) {
+        AudioDiagnosticsDialog(
+            data = diagnosticsData!!,
+            onDismiss = { viewModel.closeDiagnostics() },
+            onRefresh = { viewModel.refreshDiagnostics() }
+        )
+    }
+}
+
+@Composable
+fun AudioDiagnosticsDialog(
+    data: AudioDiagnosticsData,
+    onDismiss: () -> Unit,
+    onRefresh: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Developer Audio Diagnostics", fontWeight = FontWeight.Bold, color = PrimaryNeon, fontSize = 16.sp)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text("📱 APARELHO & HARDWARE", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
+                Text("Modelo: ${data.deviceModel} (${data.manufacturer})", fontSize = 11.sp, color = Color.LightGray)
+                Text("Android: ${data.androidVersion} (API ${data.sdkVersion})", fontSize = 11.sp, color = Color.LightGray)
+                Text("Perfil: ${data.hardwareProfile}", fontSize = 11.sp, color = PrimaryNeon)
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("🎧 ESTADO DO ROTEAMENTO", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
+                Text("Status: ${data.routingStateDescription}", fontSize = 11.sp, color = PrimaryNeon)
+                Text("Fone BT: ${data.bluetoothDeviceName}", fontSize = 11.sp, color = Color.LightGray)
+                Text("Canal SCO: ${if (data.isScoActive) "ATIVO" else "INATIVO"}", fontSize = 11.sp, color = if (data.isScoActive) PrimaryNeon else AccentRed)
+                Text("Silent Keeper: ${if (data.isKeeperActive) "RODANDO" else "PARADO"}", fontSize = 11.sp, color = Color.LightGray)
+                Text("Latência Estimada: ~${data.estimatedLatencyMs}ms", fontSize = 11.sp, color = Color.LightGray)
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("🎙️ ENTRADAS DE ÁUDIO DETECTADAS", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
+                data.inputDevices.forEach { dev ->
+                    Text("• $dev", fontSize = 10.sp, color = Color.LightGray)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("🔊 COMUNICAÇÃO & OUTPUT", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
+                Text("AudioMode: ${data.audioMode}", fontSize = 11.sp, color = Color.LightGray)
+                Text("CommDevice: ${data.communicationDevice}", fontSize = 11.sp, color = Color.LightGray)
+            }
+        },
+        confirmButton = {
+            Button(onClick = onRefresh, colors = ButtonDefaults.buttonColors(containerColor = PrimaryNeon)) {
+                Text("Atualizar", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Fechar", color = Color.White)
+            }
+        },
+        containerColor = Color(0xFF1E1E1E)
+    )
 }
 
 @Composable
@@ -432,14 +581,22 @@ fun RouterControlCard(
     routerState: RouterState,
     onToggleRouter: (Boolean) -> Unit
 ) {
-    val isConnected = routerState is RouterState.RoutingActive
-    val deviceName = if (routerState is RouterState.RoutingActive) (routerState as RouterState.RoutingActive).device.name else ""
-    
+    val isVerified = routerState is RouterState.RoutingVerified || routerState is RouterState.ScoActive || routerState is RouterState.RoutingActive
+    val deviceName = when (routerState) {
+        is RouterState.RoutingVerified -> routerState.device.name
+        is RouterState.ScoActive -> routerState.device.name
+        is RouterState.CommunicationDeviceSelected -> routerState.device.name
+        is RouterState.AudioDeviceAvailable -> routerState.device.name
+        is RouterState.BluetoothConnected -> routerState.device.name
+        is RouterState.RoutingActive -> routerState.device.name
+        else -> ""
+    }
+
     val statusColor by animateColorAsState(
         targetValue = when {
             !isRouterEnabled -> Color.Gray
-            isConnected -> PrimaryNeon
-            routerState is RouterState.WaitingDevice -> WarningAmber
+            isVerified -> PrimaryNeon
+            routerState is RouterState.WaitingDevice || routerState is RouterState.Recovering || routerState is RouterState.BluetoothConnected -> WarningAmber
             else -> AccentRed
         },
         label = "statusColor"
@@ -472,25 +629,25 @@ fun RouterControlCard(
                     modifier = Modifier.size(38.dp).padding(bottom = 4.dp)
                 )
                 Text(
-                    text = if (isConnected) deviceName else "MOTO",
+                    text = if (isVerified && deviceName.isNotEmpty()) deviceName else "MOTO",
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Black,
                     color = statusColor,
-                    fontSize = if (isConnected) 16.sp else 21.sp
+                    fontSize = if (isVerified && deviceName.isNotEmpty()) 15.sp else 21.sp
                 )
                 Text(
-                    text = if (isConnected) "" else "WHATSAPP",
+                    text = if (isVerified && deviceName.isNotEmpty()) "" else "WHATSAPP",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
-                    fontSize = if (isConnected) 11.sp else 14.sp
+                    fontSize = if (isVerified && deviceName.isNotEmpty()) 11.sp else 14.sp
                 )
                 Text(
-                    text = if (isConnected) "MODE" else "MODE",
+                    text = "MODE",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
-                    fontSize = if (isConnected) 10.sp else 11.sp
+                    fontSize = if (isVerified && deviceName.isNotEmpty()) 10.sp else 11.sp
                 )
             }
         }
@@ -503,7 +660,7 @@ fun RouterControlCard(
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(
-                imageVector = if (isConnected) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
+                imageVector = if (isVerified) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
                 contentDescription = null,
                 tint = statusColor,
                 modifier = Modifier.size(24.dp)
@@ -512,10 +669,16 @@ fun RouterControlCard(
             Text(
                 text = when {
                     !isRouterEnabled -> "DESATIVADO - Toque para ativar"
-                    isConnected -> "CONECTADO: $deviceName"
+                    routerState is RouterState.RoutingVerified -> "VERIFICADO: $deviceName"
+                    routerState is RouterState.ScoActive -> "SCO ATIVO: $deviceName"
+                    routerState is RouterState.CommunicationDeviceSelected -> "COMUNICAÇÃO: $deviceName"
+                    routerState is RouterState.AudioDeviceAvailable -> "FONE DETECTADO: $deviceName"
+                    routerState is RouterState.BluetoothConnected -> "BT CONECTADO: $deviceName"
+                    routerState is RouterState.Recovering -> "RECUPERANDO CONEXÃO..."
+                    routerState is RouterState.RoutingLost -> "CONEXÃO PERDIDA"
                     routerState is RouterState.WaitingDevice -> "AGUARDANDO CAPACETE..."
                     routerState is RouterState.Error -> "ERRO: ${(routerState as RouterState.Error).message}"
-                    else -> "INATIVO"
+                    else -> "DESCONECTADO"
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold,
@@ -524,7 +687,7 @@ fun RouterControlCard(
         }
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = if (isRouterEnabled) "CleanVoice DSP Ativo • Zero delay no WhatsApp • Sem cortes" else "Ative para gravar e falar pelo microfone do capacete",
+            text = if (isRouterEnabled) "Engine V4 Ativa • Zero Delay no WhatsApp • Filtro Anti-Vento" else "Ative para manter o microfone do capacete conectado",
             style = MaterialTheme.typography.bodySmall,
             color = Color.Gray,
             modifier = Modifier.padding(horizontal = 16.dp),

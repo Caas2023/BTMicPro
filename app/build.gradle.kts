@@ -12,8 +12,8 @@ android {
         applicationId = "com.btmicpro"
         minSdk = 26
         targetSdk = 34
-        versionCode = 16
-        versionName = "1.2.0"
+        versionCode = 17
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -66,6 +66,9 @@ dependencies {
 
     // Gestão de Roteamento de Áudio Bluetooth
     implementation(libs.twilio.audioswitch)
+
+    // Testes Unitários
+    testImplementation("junit:junit:4.13.2")
 
     // Ferramentas de debug do Compose
     debugImplementation(libs.androidx.ui.tooling)

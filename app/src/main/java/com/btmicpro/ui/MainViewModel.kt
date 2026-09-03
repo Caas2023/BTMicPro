@@ -2,14 +2,20 @@ package com.btmicpro.ui
 
 import android.app.Application
 import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.btmicpro.core.AudioCaptureEngine
+import com.btmicpro.core.AudioDiagnosticsData
 import com.btmicpro.core.AudioFileManager
+import com.btmicpro.core.DeviceCompatibilityManager
 import com.btmicpro.core.LiveAudioMonitor
 import com.btmicpro.core.MediaBooster
 import com.btmicpro.core.RecordingItem
 import com.btmicpro.core.RecordingState
+import com.btmicpro.core.RiderAudioPreset
 import com.btmicpro.core.RouterState
 import com.btmicpro.receiver.BootReceiver
 import com.btmicpro.service.BtMicService
@@ -22,12 +28,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel principal com integração do CleanVoice DSP, Roteamento Bluetooth e Live Audio Monitor.
+ * ViewModel principal do BT Mic Pro V4.
+ *
+ * Integra a máquina de estados de 8 estágios, presets de áudio para motociclistas,
+ * monitor ao vivo em tempo real e painel Developer Audio Diagnostics.
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context: Context get() = getApplication<Application>().applicationContext
     private val prefs = context.getSharedPreferences(BootReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     val audioFileManager = AudioFileManager(context)
     val audioCaptureEngine = AudioCaptureEngine(context, viewModelScope, audioFileManager)
@@ -46,6 +56,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _denoiseIntensity = MutableStateFlow(0.85f)
     val denoiseIntensity: StateFlow<Float> = _denoiseIntensity.asStateFlow()
+
+    private val _selectedPreset = MutableStateFlow(RiderAudioPreset.NORMAL)
+    val selectedPreset: StateFlow<RiderAudioPreset> = _selectedPreset.asStateFlow()
+
+    private val _diagnosticsData = MutableStateFlow<AudioDiagnosticsData?>(null)
+    val diagnosticsData: StateFlow<AudioDiagnosticsData?> = _diagnosticsData.asStateFlow()
+
+    private val _showDiagnosticsDialog = MutableStateFlow(false)
+    val showDiagnosticsDialog: StateFlow<Boolean> = _showDiagnosticsDialog.asStateFlow()
 
     private val _isBarModeEnabled = MutableStateFlow(false)
     private val _isFloatingButtonEnabled = MutableStateFlow(false)
@@ -72,6 +91,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _denoiseIntensity.value = prefs.getFloat(BootReceiver.KEY_DENOISE_LEVEL, 0.85f)
         _isRawAudioMode.value = prefs.getBoolean("raw_audio_mode", false)
 
+        val savedPresetIndex = prefs.getInt("rider_preset_index", 0)
+        _selectedPreset.value = RiderAudioPreset.values().getOrElse(savedPresetIndex) { RiderAudioPreset.NORMAL }
+        audioCaptureEngine.setPreset(_selectedPreset.value)
+
         _isBarModeEnabled.value = prefs.getBoolean("bar_mode_enabled", false)
         _isFloatingButtonEnabled.value = prefs.getBoolean("floating_button_enabled", false)
         if (_isFloatingButtonEnabled.value && FloatingButtonService.isOverlayGranted(context)) {
@@ -85,7 +108,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val wasEnabled = prefs.getBoolean(BootReceiver.KEY_ROUTER_ENABLED, false)
         _isRouterEnabled.value = wasEnabled
 
-        // Observa status do serviço para sincronizar botão da UI em tempo real
         viewModelScope.launch {
             com.btmicpro.core.RouterStateHolder.isServiceRunning.collect { isRunning ->
                 _isRouterEnabled.value = isRunning
@@ -109,6 +131,106 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         loadRecordings()
+    }
+
+    fun setRiderPreset(preset: RiderAudioPreset) {
+        _selectedPreset.value = preset
+        prefs.edit().putInt("rider_preset_index", preset.ordinal).apply()
+        audioCaptureEngine.setPreset(preset)
+        if (liveAudioMonitor.isMonitoring.value) {
+            liveAudioMonitor.stopMonitoring()
+            liveAudioMonitor.startMonitoring(_denoiseIntensity.value, _isRawAudioMode.value, preset = preset)
+        }
+    }
+
+    fun openDiagnostics() {
+        refreshDiagnostics()
+        _showDiagnosticsDialog.value = true
+    }
+
+    fun closeDiagnostics() {
+        _showDiagnosticsDialog.value = false
+    }
+
+    fun refreshDiagnostics() {
+        val modeStr = when (audioManager.mode) {
+            AudioManager.MODE_NORMAL -> "MODE_NORMAL (0)"
+            AudioManager.MODE_RINGTONE -> "MODE_RINGTONE (1)"
+            AudioManager.MODE_IN_CALL -> "MODE_IN_CALL (2)"
+            AudioManager.MODE_IN_COMMUNICATION -> "MODE_IN_COMMUNICATION (3)"
+            AudioManager.MODE_CALL_SCREENING -> "MODE_CALL_SCREENING (4)"
+            else -> "UNKNOWN (${audioManager.mode})"
+        }
+
+        val commDevStr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.communicationDevice?.let { "${it.productName} (type=${it.type})" } ?: "Nenhum"
+        } else {
+            "Não suportado (API < 31)"
+        }
+
+        val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).map { 
+            "${it.productName} [tipo=${it.type}]" 
+        }
+        val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { 
+            "${it.productName} [tipo=${it.type}]" 
+        }
+
+        val stateDesc = when (val s = routerState.value) {
+            is RouterState.RoutingVerified -> "VERIFICADO (Pronto para WhatsApp: ${s.device.name})"
+            is RouterState.ScoActive -> "SCO ATIVO (${s.device.name})"
+            is RouterState.CommunicationDeviceSelected -> "DISPOSITIVO SELECIONADO (${s.device.name})"
+            is RouterState.AudioDeviceAvailable -> "DISPOSITIVO DE ÁUDIO DETECTADO (${s.device.name})"
+            is RouterState.BluetoothConnected -> "BLUETOOTH CONECTADO (${s.device.name})"
+            is RouterState.Recovering -> "RECUPERANDO (Tentativa ${s.attempt})"
+            is RouterState.RoutingLost -> "CONEXÃO PERDIDA: ${s.reason}"
+            is RouterState.Disconnected -> "DESCONECTADO"
+            else -> "INATIVO"
+        }
+
+        val profile = DeviceCompatibilityManager.currentProfile
+        _diagnosticsData.value = AudioDiagnosticsData(
+            deviceModel = Build.MODEL,
+            manufacturer = Build.MANUFACTURER,
+            androidVersion = Build.VERSION.RELEASE,
+            sdkVersion = Build.VERSION.SDK_INT,
+            bluetoothDeviceName = getConnectedBluetoothName() ?: "Nenhum fone conectado",
+            audioMode = modeStr,
+            communicationDevice = commDevStr,
+            inputDevices = inputs,
+            outputDevices = outputs,
+            sampleRate = profile.preferredSampleRate,
+            isScoActive = isScoActive(),
+            routingStateDescription = stateDesc,
+            estimatedLatencyMs = if (profile.isCubotKingKongXPro) 15 else 20,
+            isKeeperActive = _isRouterEnabled.value,
+            hardwareProfile = profile.profileName
+        )
+    }
+
+    private fun isScoActive(): Boolean {
+        return try {
+            if (audioManager.isBluetoothScoOn) return true
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            devices.any {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+            }
+        } catch (e: Exception) { false }
+    }
+
+    private fun getConnectedBluetoothName(): String? {
+        return try {
+            val devs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            devs.find {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+            }?.productName?.toString() 
+                ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    audioManager.availableCommunicationDevices.find { 
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET 
+                    }?.productName?.toString()
+                } else null
+        } catch (e: Exception) { null }
     }
 
     private fun checkPromoPopup() {
@@ -183,7 +305,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             com.btmicpro.core.RouterStateHolder.updateState(RouterState.WaitingDevice)
             startRouterService()
         } else {
-            com.btmicpro.core.RouterStateHolder.updateState(RouterState.Inactive)
+            com.btmicpro.core.RouterStateHolder.updateState(RouterState.Disconnected)
             stopRouterService()
         }
     }
@@ -193,7 +315,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("raw_audio_mode", enabled).apply()
         if (liveAudioMonitor.isMonitoring.value) {
             liveAudioMonitor.stopMonitoring()
-            liveAudioMonitor.startMonitoring(_denoiseIntensity.value, enabled)
+            liveAudioMonitor.startMonitoring(_denoiseIntensity.value, enabled, preset = _selectedPreset.value)
         }
     }
 
@@ -201,7 +323,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (enabled) {
             liveAudioMonitor.startMonitoring(
                 denoiseIntensity = _denoiseIntensity.value,
-                bypassDsp = _isRawAudioMode.value
+                bypassDsp = _isRawAudioMode.value,
+                preset = _selectedPreset.value
             )
         } else {
             liveAudioMonitor.stopMonitoring()
@@ -236,11 +359,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startRecording() {
         val currentDeviceName = when (val state = routerState.value) {
+            is RouterState.RoutingVerified -> state.device.name
+            is RouterState.ScoActive -> state.device.name
             is RouterState.RoutingActive -> state.device.name
             else -> if (_isRouterEnabled.value) "Fone Bluetooth (via Service)" else "Microfone do Sistema"
         }
         RecordingService.start(context)
-        audioCaptureEngine.startRecording(currentDeviceName, _denoiseIntensity.value, _isRawAudioMode.value)
+        audioCaptureEngine.startRecording(
+            deviceName = currentDeviceName,
+            noiseDenoiseLevel = _denoiseIntensity.value,
+            rawAudioMode = _isRawAudioMode.value,
+            preset = _selectedPreset.value
+        )
     }
 
     fun stopRecording() { 

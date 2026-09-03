@@ -46,9 +46,11 @@ class LiveAudioMonitor(
     fun startMonitoring(
         denoiseIntensity: Float = 0.85f,
         bypassDsp: Boolean = false,
-        volumeMultiplier: Float = 1.0f
+        volumeMultiplier: Float = 1.0f,
+        preset: RiderAudioPreset = RiderAudioPreset.NORMAL
     ) {
         if (_isMonitoring.value) return
+        cleanVoiceDsp.setPreset(preset)
 
         val sampleRate = 16000
         val channelConfigIn = AudioFormat.CHANNEL_IN_MONO

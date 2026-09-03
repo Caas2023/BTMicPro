@@ -175,6 +175,56 @@
   - `docs/HISTORICO_E_STATUS.md`
   - `BTMicPro.apk`
   - `BTMicPro_v1.2.0_code16.apk`
-- **Status**: ✅ 100% implementado, testado com build e APK pronto para uso.
+### 2026-09-02 22:18 (BRT) — Versão 1.4.0 (V4): Prompt Master — Engenharia de Áudio Especializada para Motociclistas
+- **Descrição**:
+  1. **Auditoria Arquitetural & Viabilidade Técnica**:
+     - Realizada auditoria profunda e análise da arquitetura de áudio do Android no Cubot KingKong X Pro (MediaTek Dimensity 8200, Android 14 API 34).
+     - Documentado tecnicamente que o Android AOSP não possui API pública para injeção de PCM entre processos sem privilégios de sistema ou root, esclarecendo a verdade da arquitetura e dividindo a solução em frentes complementares robustas.
+     - Documento de engenharia completo registrado em `docs/architecture/V4_AUDIO_ENGINEERING_AUDIT.md`.
+  2. **Camada 1: Bluetooth Routing Engine (Máquina de Estados de 8 Estágios)**:
+     - Evolução de `RouterState.kt` e `BluetoothAudioRouter.kt` para uma máquina de estados finitos estrita: `DISCONNECTED` -> `BLUETOOTH_CONNECTED` -> `AUDIO_DEVICE_AVAILABLE` -> `COMMUNICATION_DEVICE_SELECTED` -> `SCO_ACTIVE` -> `ROUTING_VERIFIED` -> `ROUTING_LOST` -> `RECOVERING`.
+     - Verificação real em hardware de áudio conectado, canal SCO mSBC ativo e keep-alive persistente via `SilentAudioKeeper`.
+  3. **Camada 2: Device Compatibility Manager & Painel de Diagnóstico**:
+     - Criado `DeviceCompatibilityManager.kt` com suporte dedicado ao `Cubot KingKong X Pro` (MediaTek Dimensity 8200) e fallback genérico universal.
+     - Criado painel `Developer Audio Diagnostics` na UI exibindo modelo, chipset, modos de áudio, dispositivos de entrada/saída, status SCO real e latência estimada (~15ms).
+  4. **Camada 3: Motor Modular VoiceProcessingEngine (DSP de 8 Estágios em Tempo Real)**:
+     - Criado `VoiceProcessingEngine.kt` com zero alocação de objetos no loop de áudio (Zero-GC):
+       1. DC Block (20Hz).
+       2. High-Pass Adaptativo Butterworth 4ª ordem (80Hz a 160Hz).
+       3. Wind Noise Detector (análise espectral de rajadas subsônicas).
+       4. Soft Downward Expander baseado em envelopes RMS de 10ms (sem cortes de fala).
+       5. Dynamic Vocal EQ em 3.0 kHz.
+       6. AGC (Automatic Gain Control) com attack rápido de 10ms e release de 300ms.
+       7. Vocal Compressor (2:1).
+       8. True Peak Brickwall Limiter (-1.0 dBFS).
+     - 5 Presets de Motociclista: `NORMAL`, `CITY`, `HIGHWAY`, `EXTREME_WIND` e `VOICE_CLARITY`.
+  5. **Camada 4: Testes Automatizados com PCM Sintético**:
+     - Criada suite de testes unitários `VoiceProcessingEngineTest.kt` validando silêncio, proteção anti-clipping (-1.0 dBFS), preservação de tom vocal em 1kHz, sensibilidade a vento subsônico (40Hz) e alternância de presets.
+     - Testes unitários executados e aprovados via Gradle (`testDebugUnitTest` com 100% de sucesso).
+  6. **Interface do Usuário (Compose)**:
+     - Versão atualizada para v1.4.0 V4.
+     - Adicionado seletor de chips dos Presets do Motociclista.
+     - Adicionado botão e Dialog interativo do Developer Audio Diagnostics.
+  7. **Compilação e Binários**:
+     - `BUILD SUCCESSFUL in 18s`.
+     - Binários atualizados na raiz: `BTMicPro.apk` e `BTMicPro_v1.4.0_V4.apk` (18.8 MB).
+- **Arquivos Afetados**:
+  - `app/src/main/java/com/btmicpro/core/DeviceCompatibilityManager.kt` [NOVO]
+  - `app/src/main/java/com/btmicpro/core/VoiceProcessingEngine.kt` [NOVO]
+  - `app/src/test/java/com/btmicpro/core/VoiceProcessingEngineTest.kt` [NOVO]
+  - `docs/architecture/V4_AUDIO_ENGINEERING_AUDIT.md` [NOVO]
+  - `app/src/main/java/com/btmicpro/core/RouterState.kt`
+  - `app/src/main/java/com/btmicpro/core/BluetoothAudioRouter.kt`
+  - `app/src/main/java/com/btmicpro/core/CleanVoiceDsp.kt`
+  - `app/src/main/java/com/btmicpro/core/AudioCaptureEngine.kt`
+  - `app/src/main/java/com/btmicpro/core/LiveAudioMonitor.kt`
+  - `app/src/main/java/com/btmicpro/service/BtMicService.kt`
+  - `app/src/main/java/com/btmicpro/ui/MainViewModel.kt`
+  - `app/src/main/java/com/btmicpro/ui/MainScreen.kt`
+  - `app/build.gradle.kts`
+  - `BTMicPro.apk`
+  - `BTMicPro_v1.4.0_V4.apk`
+  - `docs/HISTORICO_E_STATUS.md`
+- **Status**: ✅ 100% implementado, testado com testes unitários JUnit verdes, build validado e pronto para uso no aparelho.
 
 

@@ -70,17 +70,23 @@ class AudioCaptureEngine(
         } catch (e: Exception) { null }
     }
 
+    fun setPreset(preset: RiderAudioPreset) {
+        cleanVoiceDsp.setPreset(preset)
+    }
+
     @SuppressLint("MissingPermission")
     fun startRecording(
         deviceName: String = "Fone Bluetooth",
         noiseDenoiseLevel: Float = 0.85f,
         rawAudioMode: Boolean = false,
-        forceScoRate: Boolean = false
+        forceScoRate: Boolean = false,
+        preset: RiderAudioPreset = RiderAudioPreset.NORMAL
     ) {
         if (_recordingState.value is RecordingState.Recording) {
             Log.w(TAG, "Gravação já está em andamento.")
             return
         }
+        cleanVoiceDsp.setPreset(preset)
 
         val scoActive = forceScoRate || isScoActive()
         effectiveSampleRate = if (scoActive) 16000 else 48000

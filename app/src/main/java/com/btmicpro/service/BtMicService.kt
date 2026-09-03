@@ -85,6 +85,48 @@ class BtMicService : Service() {
 
     private fun updateNotification(state: RouterState) {
         val notification = when (state) {
+            is RouterState.RoutingVerified -> {
+                buildNotification(
+                    title = "🎧 Microfone Bluetooth Verificado",
+                    content = "Pronto para WhatsApp: ${state.device.name} (${state.sampleRate}Hz)"
+                )
+            }
+            is RouterState.ScoActive -> {
+                buildNotification(
+                    title = "🎧 Canal SCO Ativo",
+                    content = "Canal de voz conectado: ${state.device.name}"
+                )
+            }
+            is RouterState.CommunicationDeviceSelected -> {
+                buildNotification(
+                    title = "🎧 Dispositivo Selecionado",
+                    content = "Comunicação vinculada: ${state.device.name}"
+                )
+            }
+            is RouterState.AudioDeviceAvailable -> {
+                buildNotification(
+                    title = "🎧 Fone de Áudio Detectado",
+                    content = "Configurando rotas para: ${state.device.name}"
+                )
+            }
+            is RouterState.BluetoothConnected -> {
+                buildNotification(
+                    title = "🟡 Bluetooth Conectado",
+                    content = "Preparando canal de voz: ${state.device.name}"
+                )
+            }
+            is RouterState.Recovering -> {
+                buildNotification(
+                    title = "🔄 Reconectando Fone...",
+                    content = "Tentativa ${state.attempt} de recuperação do canal"
+                )
+            }
+            is RouterState.RoutingLost -> {
+                buildNotification(
+                    title = "⚠️ Conexão Perdida",
+                    content = state.reason
+                )
+            }
             is RouterState.RoutingActive -> {
                 buildNotification(
                     title = getString(R.string.notification_title_active),
@@ -103,7 +145,7 @@ class BtMicService : Service() {
                     content = state.message
                 )
             }
-            RouterState.Inactive -> return
+            RouterState.Disconnected, RouterState.Inactive -> return
         }
 
         notificationManager.notify(NOTIFICATION_ID, notification)
