@@ -18,6 +18,8 @@ import java.util.UUID
 
 /**
  * Gerenciador de armazenamento e compartilhamento de arquivos de áudio gravados pelo aplicativo.
+ *
+ * V2: Corrige duração para sampleRate variável (16k vs 48k) e lê header real do WAV.
  */
 class AudioFileManager(private val context: Context) {
 
@@ -36,10 +38,49 @@ class AudioFileManager(private val context: Context) {
     }
 
     /**
+     * Cria um arquivo temporário em disco para streaming contínuo de gravação.
+     */
+    fun createTempPcmFile(): File {
+        val tempDir = File(context.cacheDir, "temp_audio")
+        if (!tempDir.exists()) tempDir.mkdirs()
+        return File.createTempFile("rec_stream_", ".pcm", tempDir)
+    }
+
+    /**
+     * Salva o arquivo PCM temporário em um arquivo de áudio WAV final via streaming direto de disco,
+     * garantindo consumo mínimo e constante de memória RAM.
+     */
+    suspend fun savePcmFileAsWav(
+        tempPcmFile: File,
+        sampleRate: Int,
+        channels: Int,
+        durationMs: Long
+    ): File = withContext(Dispatchers.IO) {
+        val timestampFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+        val fileName = "BTMic_${timestampFormat.format(Date())}_${sampleRate}Hz.wav"
+        val outputFile = File(getRecordingsDirectory(), fileName)
+
+        val totalAudioLen = tempPcmFile.length()
+        FileOutputStream(outputFile).use { fos ->
+            writeWavHeader(fos, totalAudioLen, sampleRate, channels)
+            tempPcmFile.inputStream().use { fis ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                while (fis.read(buffer).also { bytesRead = it } != -1) {
+                    fos.write(buffer, 0, bytesRead)
+                }
+            }
+        }
+        try { tempPcmFile.delete() } catch (ignored: Exception) {}
+
+        outputFile
+    }
+
+    /**
      * Salva dados PCM em um arquivo de áudio WAV válido com cabeçalho RIFF padrão.
      *
      * @param pcmData Bytes PCM brutos capturados.
-     * @param sampleRate Taxa de amostragem (ex: 48000 Hz).
+     * @param sampleRate Taxa de amostragem (ex: 48000 Hz ou 16000 Hz em SCO).
      * @param channels Número de canais (1 = mono).
      * @param durationMs Duração calculada do áudio.
      * @return O objeto File do áudio gravado.
@@ -51,7 +92,7 @@ class AudioFileManager(private val context: Context) {
         durationMs: Long
     ): File = withContext(Dispatchers.IO) {
         val timestampFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-        val fileName = "BTMic_${timestampFormat.format(Date())}.wav"
+        val fileName = "BTMic_${timestampFormat.format(Date())}_${sampleRate}Hz.wav"
         val outputFile = File(getRecordingsDirectory(), fileName)
 
         FileOutputStream(outputFile).use { fos ->
@@ -151,17 +192,36 @@ class AudioFileManager(private val context: Context) {
     }
 
     /**
-     * Calcula a duração aproximada de um arquivo WAV em milissegundos.
+     * Calcula a duração lendo o header WAV real (sampleRate variável 16k/48k).
      */
     private fun calculateWavDurationMs(file: File): Long {
         return try {
+            // Tenta ler sampleRate do header WAV (bytes 24-27)
+            val sampleRate = readWavSampleRate(file) ?: 16000 // fallback
+            val byteRate = sampleRate * 1 * 16 / 8 // mono 16-bit
             val audioLength = file.length() - 44
-            if (audioLength > 0) {
-                // 48000 Hz, 16-bit mono = 96.000 bytes por segundo = 96 bytes por milissegundo
-                audioLength / 96
+            if (audioLength > 0 && byteRate > 0) {
+                (audioLength * 1000L) / byteRate
             } else 0L
         } catch (e: Exception) {
             0L
+        }
+    }
+
+    private fun readWavSampleRate(file: File): Int? {
+        return try {
+            RandomAccessFile(file, "r").use { raf ->
+                if (raf.length() < 44) return null
+                raf.seek(24)
+                val b0 = raf.read() and 0xFF
+                val b1 = raf.read() and 0xFF
+                val b2 = raf.read() and 0xFF
+                val b3 = raf.read() and 0xFF
+                b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Erro ao ler sampleRate do WAV", e)
+            null
         }
     }
 

@@ -1,13 +1,13 @@
 package com.btmicpro.core
 
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.MediaRecorder
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.twilio.audioswitch.AudioDevice
 import com.twilio.audioswitch.AudioSwitch
@@ -17,13 +17,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executor
 
 /**
- * Gerenciador responsável por forçar o roteamento do microfone do sistema operacional
- * para fones de ouvido Bluetooth (Bluetooth SCO / Communication Device).
- *
- * Garante que aplicativos de terceiros (como WhatsApp, Telegram e gravadores)
- * utilizem a entrada de microfone do fone de ouvido conectado em vez do microfone interno.
+ * BluetoothAudioRouter V3.0 (Zero-Dropout & Instant Capture).
+ * 
+ * Garante roteamento imediato do microfone Bluetooth para o WhatsApp e outros apps.
+ * Utiliza setCommunicationDevice nativo (Android 12+) e SilentAudioKeeper para manter
+ * o canal SCO permanentemente ativo, eliminando o atraso de 2 a 3 segundos e impedindo
+ * que o áudio seja gravado pelo microfone do aparelho.
  */
 class BluetoothAudioRouter(
     private val context: Context,
@@ -37,272 +39,289 @@ class BluetoothAudioRouter(
 
     private var audioSwitch: AudioSwitch? = null
     private var isRouterRunning = false
-    private var originalAudioMode: Int = AudioManager.MODE_NORMAL
 
-    // Callback nativo para Android 6.0+ (API 23+)
+    private val silentAudioKeeper = SilentAudioKeeper()
+
+    private val watchdogHandler = Handler(Looper.getMainLooper())
+    private var watchdogRunnable: Runnable? = null
+
+    private var modeListener: AudioManager.OnModeChangedListener? = null
+    private val modeExecutor: Executor = Executor { it.run() }
+
     private val audioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-            Log.d(TAG, "Novos dispositivos de áudio detectados no sistema.")
             if (isRouterRunning) {
-                evaluateAndRouteBluetoothDevice()
+                applyPreferredDevicesForCapture()
+                updateStateForCurrentMode()
             }
         }
-
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
-            Log.d(TAG, "Dispositivos de áudio desconectados.")
             if (isRouterRunning) {
-                evaluateAndRouteBluetoothDevice()
+                updateStateForCurrentMode()
             }
         }
     }
 
-    // Receptor legado para mudanças de estado do canal SCO (Android < 12)
-    private val scoStateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED) {
-                val state = intent.getIntExtra(
-                    AudioManager.EXTRA_SCO_AUDIO_STATE,
-                    AudioManager.SCO_AUDIO_STATE_ERROR
-                )
-                when (state) {
-                    AudioManager.SCO_AUDIO_STATE_CONNECTED -> {
-                        Log.d(TAG, "Canal Bluetooth SCO conectado com sucesso (Broadcast).")
-                        val currentBtName = getConnectedBluetoothName() ?: "Fone Bluetooth"
-                        _routerState.value = RouterState.RoutingActive(
-                            BluetoothDeviceInfo(name = currentBtName, isScoConnected = true)
-                        )
-                    }
-                    AudioManager.SCO_AUDIO_STATE_DISCONNECTED -> {
-                        Log.d(TAG, "Canal Bluetooth SCO desconectado.")
-                        if (isRouterRunning) {
-                            evaluateAndRouteBluetoothDevice()
-                        }
-                    }
-                    AudioManager.SCO_AUDIO_STATE_CONNECTING -> {
-                        Log.d(TAG, "Conectando ao canal Bluetooth SCO…")
-                    }
-                    else -> {
-                        Log.w(TAG, "Estado desconhecido ou erro no canal SCO: $state")
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Inicia o monitoramento ativo e ativa o roteamento de microfone para fone Bluetooth.
-     */
     fun startRouting() {
-        if (isRouterRunning) {
-            Log.d(TAG, "O roteador de microfone já está em execução.")
-            return
-        }
-
+        if (isRouterRunning) return
         isRouterRunning = true
-        originalAudioMode = audioManager.mode
-        _routerState.value = RouterState.WaitingDevice
+        val initialState = RouterState.WaitingDevice
+        _routerState.value = initialState
+        RouterStateHolder.updateState(initialState)
+        Log.d(TAG, "Iniciando V3.0: Roteamento Ativo + Keep-Alive Zero-Dropout")
 
-        // 1. Configura o modo de áudio global para comunicação (DSP ativo)
-        try {
-            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-            Log.d(TAG, "Modo de áudio configurado para MODE_IN_COMMUNICATION.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Falha ao definir MODE_IN_COMMUNICATION", e)
+        try { 
+            audioManager.registerAudioDeviceCallback(audioDeviceCallback, null) 
+        } catch (e: Exception) { 
+            Log.e(TAG, "Erro ao registrar callback de áudio", e) 
         }
 
-        // 2. Registra o callback nativo de dispositivos
-        try {
-            audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao registrar AudioDeviceCallback", e)
+        // Listener de modo para reforçar roteamento em chamadas
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            modeListener = AudioManager.OnModeChangedListener { newMode ->
+                Log.d(TAG, "Modo de áudio do sistema alterado: $newMode")
+                if (!isRouterRunning) return@OnModeChangedListener
+                applyPreferredDevicesForCapture()
+                updateStateForCurrentMode()
+            }
+            try { 
+                audioManager.addOnModeChangedListener(modeExecutor, modeListener!!) 
+            } catch (e: Exception) { 
+                Log.e(TAG, "Erro ao registrar mode listener", e) 
+            }
         }
 
-        // 3. Registra o receptor de broadcast para SCO
-        try {
-            val filter = IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED)
-            context.registerReceiver(scoStateReceiver, filter)
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao registrar scoStateReceiver", e)
-        }
-
-        // 4. Inicializa e conecta via Twilio AudioSwitch para alta resiliência
         initializeAudioSwitch()
 
-        // 5. Executa a primeira avaliação de roteamento
-        evaluateAndRouteBluetoothDevice()
-        
-        // 6. Joga o volume pro máximo
+        // 1. Aplica imediatamente as rotas para o microfone Bluetooth
+        applyPreferredDevicesForCapture()
+
+        // 2. Inicia o keep-alive silencioso para manter o canal SCO acordado
+        try {
+            silentAudioKeeper.start()
+        } catch (e: Exception) {
+            Log.e(TAG, "Erro ao iniciar SilentAudioKeeper", e)
+        }
+
+        updateStateForCurrentMode()
         maximizeBluetoothVolume()
+        startWatchdog()
     }
 
-    /**
-     * Inicializa a biblioteca AudioSwitch para suporte adicional de abstração de hardware.
-     */
+    private fun startWatchdog() {
+        stopWatchdog()
+        watchdogRunnable = object : Runnable {
+            override fun run() {
+                if (!isRouterRunning) return
+                applyPreferredDevicesForCapture()
+                updateStateForCurrentMode()
+                watchdogHandler.postDelayed(this, 20000)
+            }
+        }
+        watchdogHandler.postDelayed(watchdogRunnable!!, 20000)
+    }
+
+    private fun stopWatchdog() {
+        watchdogRunnable?.let { watchdogHandler.removeCallbacks(it) }
+        watchdogRunnable = null
+    }
+
     private fun initializeAudioSwitch() {
         try {
             audioSwitch = AudioSwitch(context.applicationContext, loggingEnabled = true).apply {
-                start { audioDevices, selectedDevice ->
+                start { audioDevices, _ ->
                     coroutineScope.launch(Dispatchers.Main) {
-                        val btDevice = audioDevices.find { it is AudioDevice.BluetoothHeadset }
-                        if (btDevice != null) {
-                            Log.d(TAG, "AudioSwitch detectou fone Bluetooth: ${btDevice.name}")
-                            selectDevice(btDevice)
+                        val bt = audioDevices.find { it is AudioDevice.BluetoothHeadset }
+                        if (bt != null) {
+                            Log.d(TAG, "AudioSwitch headset detectado: ${bt.name}")
+                            selectDevice(bt)
                             activate()
-                            _routerState.value = RouterState.RoutingActive(
-                                BluetoothDeviceInfo(name = btDevice.name, isScoConnected = true)
-                            )
+                            applyPreferredDevicesForCapture()
+                            val newState = RouterState.RoutingActive(BluetoothDeviceInfo(name = bt.name, isScoConnected = true))
+                            _routerState.value = newState
+                            RouterStateHolder.updateState(newState)
                         } else if (isRouterRunning && _routerState.value !is RouterState.RoutingActive) {
-                            _routerState.value = RouterState.WaitingDevice
+                            val waitState = RouterState.WaitingDevice
+                            _routerState.value = waitState
+                            RouterStateHolder.updateState(waitState)
                         }
                     }
                 }
                 activate()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao inicializar AudioSwitch", e)
+        } catch (e: Exception) { 
+            Log.e(TAG, "Erro ao inicializar AudioSwitch", e) 
         }
     }
 
-    /**
-     * Avalia dispositivos disponíveis e força o roteamento para a entrada de áudio Bluetooth.
-     */
-    fun evaluateAndRouteBluetoothDevice() {
-        if (!isRouterRunning) return
-
-        try {
-            // No Android 12 (API 31) ou superior, usamos a API moderna setCommunicationDevice
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val availableDevices = audioManager.availableCommunicationDevices
-                val btCommunicationDevice = availableDevices.find { device ->
-                    device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                            device.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                            device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                }
-
-                if (btCommunicationDevice != null) {
-                    val success = audioManager.setCommunicationDevice(btCommunicationDevice)
-                    if (success) {
-                        val deviceName = btCommunicationDevice.productName?.toString()
-                            ?: "Fone Bluetooth"
-                        Log.d(TAG, "setCommunicationDevice aplicado com sucesso: $deviceName")
-                        _routerState.value = RouterState.RoutingActive(
-                            BluetoothDeviceInfo(name = deviceName, isScoConnected = true)
-                        )
-                        return
-                    } else {
-                        Log.w(TAG, "Falha ao aplicar setCommunicationDevice para o dispositivo.")
-                    }
-                } else {
-                    Log.d(TAG, "Nenhum dispositivo Bluetooth de comunicação encontrado.")
-                    _routerState.value = RouterState.WaitingDevice
-                }
-            }
-
-            // Fallback legado para todas as versões: ativação do canal Bluetooth SCO
-            startLegacyBluetoothSco()
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao avaliar e rotear dispositivo Bluetooth", e)
-            _routerState.value = RouterState.Error("Falha ao configurar áudio: ${e.localizedMessage}")
-        }
-    }
-
-    /**
-     * Aciona o canal de voz Bluetooth SCO legado.
-     */
-    private fun startLegacyBluetoothSco() {
-        try {
-            if (!audioManager.isBluetoothScoOn) {
-                audioManager.startBluetoothSco()
-                audioManager.isBluetoothScoOn = true
-                Log.d(TAG, "startBluetoothSco acionado.")
-            }
+    private fun updateStateForCurrentMode() {
+        val hasBt = hasBtDevice()
+        val newState = if (hasBt) {
             val name = getConnectedBluetoothName() ?: "Fone Bluetooth"
-            _routerState.value = RouterState.RoutingActive(
-                BluetoothDeviceInfo(name = name, isScoConnected = true)
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao iniciar Bluetooth SCO legado", e)
+            RouterState.RoutingActive(BluetoothDeviceInfo(name = name, isScoConnected = true))
+        } else {
+            RouterState.WaitingDevice
+        }
+        _routerState.value = newState
+        RouterStateHolder.updateState(newState)
+    }
+
+    private fun hasBtDevice(): Boolean {
+        return try {
+            val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            inputs.any { 
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || 
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET) 
+            } || audioManager.availableCommunicationDevices.any { 
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET 
+            }
+        } catch (e: Exception) { false }
+    }
+
+    fun applyPreferredDevicesForCapture() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                // 1. API Oficial Android 12+ (setCommunicationDevice)
+                val commDevices = audioManager.availableCommunicationDevices
+                val btCommDevice = commDevices.find {
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+                }
+                if (btCommDevice != null) {
+                    val success = audioManager.setCommunicationDevice(btCommDevice)
+                    Log.d(TAG, "setCommunicationDevice aplicado com sucesso=$success (${btCommDevice.productName})")
+                }
+
+                // 2. Presets de captura do sistema
+                val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+                val btSco = inputs.find { 
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET 
+                }
+                if (btSco != null) {
+                    setPreferredDeviceForPreset(MediaRecorder.AudioSource.MIC, btSco)
+                    setPreferredDeviceForPreset(MediaRecorder.AudioSource.VOICE_COMMUNICATION, btSco)
+                    setPreferredDeviceForPreset(MediaRecorder.AudioSource.DEFAULT, btSco)
+                    setPreferredDeviceForPreset(MediaRecorder.AudioSource.VOICE_RECOGNITION, btSco)
+                    Log.d(TAG, "Presets de captura vinculados ao microfone Bluetooth SCO")
+                }
+            } catch (e: Exception) { 
+                Log.e(TAG, "Erro em applyPreferredDevicesForCapture", e) 
+            }
+        } else {
+            // Fallback legado para Android 11 e inferiores
+            try {
+                @Suppress("DEPRECATION")
+                audioManager.startBluetoothSco()
+                @Suppress("DEPRECATION")
+                audioManager.isBluetoothScoOn = true
+            } catch (e: Exception) {
+                Log.e(TAG, "Erro no fallback startBluetoothSco legado", e)
+            }
         }
     }
 
-    /**
-     * Obtém o nome do dispositivo Bluetooth atualmente conectado.
-     */
+    private fun setPreferredDeviceForPreset(preset: Int, device: AudioDeviceInfo): Boolean {
+        return try {
+            val method = AudioManager::class.java.getMethod(
+                "setPreferredDeviceForCapturePreset", 
+                Int::class.javaPrimitiveType, 
+                AudioDeviceInfo::class.java
+            )
+            method.invoke(audioManager, preset, device) as Boolean
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun clearPreferredDevices() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                audioManager.clearCommunicationDevice()
+                val method = AudioManager::class.java.getMethod(
+                    "clearPreferredDeviceForCapturePreset", 
+                    Int::class.javaPrimitiveType
+                )
+                method.invoke(audioManager, MediaRecorder.AudioSource.MIC)
+                method.invoke(audioManager, MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                method.invoke(audioManager, MediaRecorder.AudioSource.DEFAULT)
+                method.invoke(audioManager, MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                Log.d(TAG, "Rotas de comunicação liberadas com sucesso")
+            } catch (e: Exception) { 
+                Log.e(TAG, "Erro ao limpar rotas de comunicação", e) 
+            }
+        } else {
+            try {
+                @Suppress("DEPRECATION")
+                audioManager.stopBluetoothSco()
+                @Suppress("DEPRECATION")
+                audioManager.isBluetoothScoOn = false
+            } catch (ignored: Exception) {}
+        }
+    }
+
     private fun getConnectedBluetoothName(): String? {
         return try {
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-            val btInput = devices.find {
+            val devs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            devs.find {
                 it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-            }
-            btInput?.productName?.toString()
-        } catch (e: Exception) {
-            null
-        }
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+            }?.productName?.toString() 
+                ?: audioManager.availableCommunicationDevices.find { 
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET 
+                }?.productName?.toString()
+        } catch (e: Exception) { null }
     }
 
-    /**
-     * Interrompe o roteamento e restaura as configurações originais de áudio do sistema.
-     */
     fun stopRouting() {
         if (!isRouterRunning) return
         isRouterRunning = false
+        stopWatchdog()
 
         try {
-            // 1. Limpa o dispositivo de comunicação moderno (API 31+)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                audioManager.clearCommunicationDevice()
-                Log.d(TAG, "clearCommunicationDevice executado.")
-            }
+            silentAudioKeeper.stop()
+        } catch (e: Exception) {
+            Log.e(TAG, "Erro ao parar SilentAudioKeeper", e)
+        }
 
-            // 2. Desativa o canal Bluetooth SCO legado
-            if (audioManager.isBluetoothScoOn) {
-                audioManager.isBluetoothScoOn = false
-                audioManager.stopBluetoothSco()
-                Log.d(TAG, "stopBluetoothSco executado.")
-            }
+        clearPreferredDevices()
 
-            // 3. Encerra o AudioSwitch
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            modeListener?.let { 
+                try { audioManager.removeOnModeChangedListener(it) } catch (ignored: Exception) {} 
+            }
+            modeListener = null
+        }
+
+        try {
             audioSwitch?.stop()
             audioSwitch = null
-
-            // 4. Desregistra callbacks e receptores
-            try {
-                audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
-            } catch (ignored: Exception) {}
-
-            try {
-                context.unregisterReceiver(scoStateReceiver)
-            } catch (ignored: Exception) {}
-
-            // 5. Restaura o modo de áudio original do sistema
-            audioManager.mode = originalAudioMode
-            Log.d(TAG, "Modo de áudio restaurado para o valor original ($originalAudioMode).")
-
-            _routerState.value = RouterState.Inactive
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao parar roteamento de áudio Bluetooth", e)
+            try { audioManager.unregisterAudioDeviceCallback(audioDeviceCallback) } catch (ignored: Exception) {}
+            val inactiveState = RouterState.Inactive
+            _routerState.value = inactiveState
+            RouterStateHolder.updateState(inactiveState)
+            Log.d(TAG, "Roteador parado")
+        } catch (e: Exception) { 
+            Log.e(TAG, "Erro ao parar roteamento", e) 
         }
+    }
+
+    fun evaluateAndRouteBluetoothDevice() { 
+        applyPreferredDevicesForCapture()
+        updateStateForCurrentMode() 
     }
 
     private fun maximizeBluetoothVolume() {
         try {
-            // Volume da chamada de voz (usado pelo SCO)
             val maxVoice = audioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
             audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxVoice, 0)
-            
-            // Volume de mídia (usado pelo A2DP)
             val maxMusic = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxMusic, 0)
-            
-            Log.d(TAG, "Volume do Bluetooth maximizado com sucesso.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao tentar maximizar o volume", e)
+            Log.d(TAG, "Volumes de chamada e mídia elevados ao máximo")
+        } catch (e: Exception) { 
+            Log.e(TAG, "Erro ao maximizar volume", e) 
         }
     }
 
-    companion object {
-        private const val TAG = "BluetoothAudioRouter"
+    companion object { 
+        private const val TAG = "BluetoothAudioRouter" 
     }
 }

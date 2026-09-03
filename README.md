@@ -1,38 +1,33 @@
 # BT Mic Pro 🏍️🎤
 
-**BT Mic Pro** é um aplicativo Android desenvolvido especialmente para motociclistas e criadores de conteúdo que gravam áudios e vídeos em ambientes com ruído extremo (como rodovias e trânsito intenso).
+**BT Mic Pro** é um aplicativo Android desenvolvido especialmente para motociclistas que precisam enviar e ouvir áudios em qualquer aplicativo (WhatsApp, Telegram, etc) com o capacete, em ambientes com ruído extremo.
 
-O aplicativo atua forçando o roteamento de áudio do sistema, obrigando aplicativos de terceiros (como **WhatsApp**, **Telegram**, e a própria **Câmera**) a utilizarem o microfone do seu intercomunicador ou fone Bluetooth (via protocolo SCO), ao invés do microfone interno do celular.
+O aplicativo atua forçando o roteamento de áudio do sistema, obrigando aplicativos de terceiros a utilizarem o microfone do seu intercomunicador Bluetooth (via protocolo SCO), ao invés do microfone interno do celular, e mantendo o canal sempre ativo para ouvir e falar ao mesmo tempo.
 
 ## 🚀 Funcionalidades Principais
 
-### 1. MOTO WHATSAPP MODE (Modo Roteador Ao Vivo)
+### MOTO WHATSAPP MODE (Sempre em Chamada)
 Uma tela inicial minimalista com um botão **GIGANTE**, ideal para ser pressionado rapidamente mesmo utilizando luvas de motociclista. 
-* **O que faz:** Ao ser ativado, o aplicativo cria um serviço em segundo plano (Foreground Service) que "engana" o Android, forçando o canal Bluetooth SCO a ficar permanentemente aberto.
+* **O que faz:** Ao ser ativado, o aplicativo cria um serviço em segundo plano (Foreground Service) com chamada fantasma via Telecom, AudioFocus e keep-alive de silêncio 16kHz, forçando o canal Bluetooth SCO a ficar permanentemente aberto.
 * **Volume Maximizado:** Ao ligar o modo, o volume de mídia e chamadas do aparelho é automaticamente elevado para 100%, garantindo que você ouça as mensagens no meio do vento.
-* **Filtros Nativos:** Tenta ativar no hardware (DSP do processador, como MediaTek ou Snapdragon) o Cancelamento de Eco Acústico (AEC), Supressão de Ruído (NS) e Controle Automático de Ganho (AGC).
-* **Uso Prático:** Você ativa o botão, minimiza o app, abre o WhatsApp e grava um áudio ou vídeo. O WhatsApp vai puxar o som direto do capacete!
-
-### 2. ADVANCED RECORDER (Gravador com IA / Tratamento Avançado)
-Para situações onde o vento está absurdo e o WhatsApp sozinho não dá conta, o aplicativo possui um gravador embutido (Segunda Tela) com processamento digital de sinal (DSP) pesado.
-* **Filtro Passa-Alta (High-Pass Filter):** Corta as frequências graves (abaixo de 120Hz~150Hz), eliminando quase que totalmente aquele som de "estrondo" do vento batendo no capacete e do escapamento da moto.
-* **Noise Gate Dinâmico:** Um portão de ruído ajustável. Quando você para de falar, o microfone é mutado quase instantaneamente, cortando o som do motor no fundo.
-* **Compressor Compensatório:** Aumenta o volume da sua voz automaticamente, compensando a perda causada pelo filtro de ruídos e garantindo um áudio alto e claro.
-* **Compartilhamento:** Após a gravação, basta clicar no ícone de enviar para mandar o arquivo `.wav` tratado direto para a conversa do WhatsApp.
+* **Filtros Nativos:** Ativa no hardware (DSP MediaTek/Snapdragon) o Cancelamento de Eco Acústico (AEC), Supressão de Ruído (NS) e Controle Automático de Ganho (AGC).
+* **Auto-ligar:** Quando o intercomunicador conecta, o modo ativa sozinho. Após reiniciar o celular, volta sozinho.
+* **Uso Prático:** Você ativa o botão, minimiza o app, abre o WhatsApp e grava um áudio ou ouve um áudio. O WhatsApp vai puxar o som direto do capacete e você ouve no capacete ao mesmo tempo!
 
 ## 🛠️ Tecnologias Utilizadas
 * **Kotlin & Jetpack Compose:** Interface 100% moderna, fluida e reativa.
-* **AudioManager & AudioRecord:** APIs nativas de baixo nível do Android para manipulação de bytes de áudio.
-* **Twilio AudioSwitch (Fallback):** Utilizado internamente para gerenciar transições complexas de áudio Bluetooth e garantir alta resiliência de conexão.
-* **Coroutines & StateFlow:** Gerenciamento assíncrono para garantir que a gravação e o processamento (DSP) não travem a interface.
+* **AudioManager & Telecom ConnectionService:** APIs nativas para simular chamada sempre ativa e forçar SCO.
+* **SilentAudioKeeper & Watchdog:** Mantém o túnel SCO vivo com silêncio 16kHz e re-aplica roteamento a cada 3s.
+* **Coroutines & StateFlow:** Gerenciamento assíncrono sem travar a interface.
 
 ## 📱 Como Instalar e Testar
 1. O APK compilado encontra-se na raiz do projeto: `BTMicPro.apk`.
 2. Transfira para o seu dispositivo Android (Testado no Cubot KingKong X Pro).
 3. Conecte o seu intercomunicador ou fone Bluetooth.
-4. Abra o app, dê as permissões necessárias e ative o **MOTO WHATSAPP MODE**.
+4. Abra o app, dê as permissões necessárias (microfone, Bluetooth, notificações e ignorar otimização de bateria) e ative o **MOTO WHATSAPP MODE**.
 
 ## 🚧 Estrutura do Projeto
-* `com.btmicpro.core`: Contém a lógica pesada de roteamento (`BluetoothAudioRouter`) e processamento matemático de áudio (`AudioCaptureEngine`).
-* `com.btmicpro.service`: Serviço de primeiro plano para manter o app vivo com notificação na barra de status.
-* `com.btmicpro.ui`: Telas feitas em Jetpack Compose, desenhadas para alto contraste (Dark Theme + Neon Green) e alvos de toque grandes.
+* `com.btmicpro.core`: Lógica de roteamento (`BluetoothAudioRouter`), keep-alive (`SilentAudioKeeper`) e otimização de bateria.
+* `com.btmicpro.telecom`: Simulação de chamada fantasma (`FakeCallConnectionService`).
+* `com.btmicpro.service`: Serviço de primeiro plano para manter o app vivo com notificação.
+* `com.btmicpro.ui`: Tela única em Jetpack Compose, alto contraste (Dark Theme + Neon Green) e alvo de toque grande para luvas.

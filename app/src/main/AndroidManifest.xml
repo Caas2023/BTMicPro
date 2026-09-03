@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Manifesto da aplicação BT Mic Pro -->
+<!-- Manifesto da aplicação BT Mic Pro V2 - Sempre em Chamada -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -20,9 +20,16 @@
     <!-- Permissão para modificar configurações de áudio (SCO, volume, etc.) -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- Permissão para botão flutuante sobreposto -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- Permissões para Serviços em Primeiro Plano (Foreground Services) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
+    <!-- Permissão para simular chamada (Telecom ConnectionService) -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
 
     <!-- Permissão para envio de notificações (Android 13+ / API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -56,11 +63,11 @@
             </intent-filter>
         </activity>
 
-        <!-- Serviço de Roteamento de Microfone Bluetooth (Modo Router) -->
+        <!-- Serviço de Roteamento de Microfone Bluetooth (Modo Router) V2 -->
         <service
             android:name=".service.BtMicService"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone|connectedDevice" />
 
         <!-- Serviço de Gravação com IA / DSP (Modo Gravador) -->
         <service
@@ -68,12 +75,39 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
-        <!-- Broadcast Receiver para Inicialização Automática após Boot -->
+        <!-- Botão Flutuante Sobreposto (opcional) -->
+        <service
+            android:name=".service.FloatingButtonService"
+            android:exported="false" />
+
+        <!-- Serviço de Conexão Telecom - Simula chamada fantasma para manter SCO sempre ativo -->
+        <service
+            android:name=".telecom.FakeCallConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
+        <!-- Broadcast Receivers -->
         <receiver
             android:name=".receiver.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receiver.BluetoothAutoStartReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+                <action android:name="android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED" />
+                <action android:name="android.media.SCO_AUDIO_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 

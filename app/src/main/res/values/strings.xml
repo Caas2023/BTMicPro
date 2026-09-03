@@ -33,4 +33,32 @@
     <string name="btn_play">Ouvir</string>
     <string name="btn_pause">Pausar</string>
     <string name="btn_delete">Excluir</string>
+    <!-- Labels UI -->
+    <string name="app_version_label">v1.1.4</string>
+    <string name="mode_raw_audio_title">RAW AUDIO MODE</string>
+    <string name="mode_raw_audio_desc">Bypass DSP para não cortar voz no vento forte</string>
+    <string name="mode_boot_title">Iniciar com o Celular</string>
+    <string name="mode_boot_desc">Liga sozinho quando o celular reinicia</string>
+    <string name="mode_bar_title">MODO BAR 🔊</string>
+    <string name="mode_bar_desc">Aumenta volume da mídia até +8dB para bar/ruído</string>
+    <string name="mode_float_title">Botão Flutuante Sobreposto</string>
+    <string name="mode_float_desc">Fica por cima do WhatsApp para ligar/desligar sem abrir o app</string>
+    <string name="promo_capa_title">CAPA DE CHUVA</string>
+    <string name="promo_kit_title">KIT RELAÇÃO</string>
+    <string name="promo_helmet_title">CAPACETES</string>
+    <string name="promo_intercom_title">INTERCOMUNICADOR</string>
+    <string name="promo_tires_title">PNEUS DE MOTO</string>
+    <string name="promo_badge">EM PROMOÇÃO</string>
+    <string name="promo_close">Fechar</string>
+    <string name="router_title_idle">MOTO WHATSAPP MODE</string>
+    <string name="router_title_moto">MOTO</string>
+    <string name="router_title_whatsapp">WHATSAPP</string>
+    <string name="router_title_mode">MODE</string>
+    <string name="router_status_disabled">DESATIVADO - Toque para ativar</string>
+    <string name="router_status_connected">CONECTADO: %1$s</string>
+    <string name="router_status_waiting">AGUARDANDO CAPACETE...</string>
+    <string name="router_status_error">ERRO: %1$s</string>
+    <string name="router_status_inactive">INATIVO</string>
+    <string name="router_desc_active">Minimize e use qualquer app - áudio vai pelo capacete</string>
+    <string name="router_desc_inactive">Ative e o capacete fica sempre em chamada</string>
 </resources>

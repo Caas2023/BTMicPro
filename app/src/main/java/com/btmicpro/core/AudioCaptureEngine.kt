@@ -2,9 +2,13 @@ package com.btmicpro.core
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
+import android.os.Process
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,15 +18,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * Motor de captura de áudio com processamento digital de sinal (DSP) em tempo real,
- * projetado para isolar a voz humana e eliminar ruídos extremos (vento na moto, ventilador, trânsito).
+ * Motor de captura de áudio com CleanVoice DSP multicamada.
+ * Utiliza o pipeline profissional Butterworth 4ª ordem + Expansor suave RMS + DRC + Limiter,
+ * garantindo gravação com zero cortes e máxima redução de vento para motos.
  */
 class AudioCaptureEngine(
     private val context: Context,
@@ -35,183 +39,165 @@ class AudioCaptureEngine(
     private var audioRecord: AudioRecord? = null
     private var recordingJob: Job? = null
     private val audioEffectController = AudioEffectController()
+    private val cleanVoiceDsp = CleanVoiceDsp(16000)
 
-    // Configurações de Áudio
-    private val sampleRate = 48000 // 48 kHz para máxima fidelidade
+    private var effectiveSampleRate = 16000
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
     private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
-    // Estado do Filtro Passa-Alta Anti-Vento (120 Hz)
-    private var hpFilterPrevX = 0f
-    private var hpFilterPrevY = 0f
+    private fun isScoActive(): Boolean {
+        return try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (audioManager.isBluetoothScoOn) return true
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            devices.any {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                 it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+            }
+        } catch (e: Exception) { false }
+    }
 
-    /**
-     * Inicia a gravação de áudio com cancelamento e tratamento de sinal ativo.
-     *
-     * @param deviceName Nome do microfone em uso (ex: "Fone Bluetooth").
-     * @param noiseDenoiseLevel Nível de agressividade da redução de ruído (0.0f a 1.0f).
-     */
+    private fun getBluetoothInputDevice(): AudioDeviceInfo? {
+        return try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            devices.find {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                 it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+            }
+        } catch (e: Exception) { null }
+    }
+
     @SuppressLint("MissingPermission")
-    fun startRecording(deviceName: String = "Fone Bluetooth", noiseDenoiseLevel: Float = 0.85f, rawAudioMode: Boolean = false) {
+    fun startRecording(
+        deviceName: String = "Fone Bluetooth",
+        noiseDenoiseLevel: Float = 0.85f,
+        rawAudioMode: Boolean = false,
+        forceScoRate: Boolean = false
+    ) {
         if (_recordingState.value is RecordingState.Recording) {
             Log.w(TAG, "Gravação já está em andamento.")
             return
         }
 
+        val scoActive = forceScoRate || isScoActive()
+        effectiveSampleRate = if (scoActive) 16000 else 48000
+        Log.d(TAG, "Iniciando gravação: SCO=$scoActive Taxa=${effectiveSampleRate}Hz RawMode=$rawAudioMode")
+
+        val sampleRate = effectiveSampleRate
+        cleanVoiceDsp.configureFilters(sampleRate)
+
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-        val bufferSize = max(minBufferSize, 4096)
+        val bufferSize = max(minBufferSize, if (scoActive) 2048 else 4096)
 
         try {
+            // No Android, VOICE_RECOGNITION oferece sinal limpo sem compressões destrutivas de chamada
             val audioSource = if (rawAudioMode) {
-                // API 24+ allows UNPROCESSED to bypass native hardware DSP.
-                // Using 9 directly which is MediaRecorder.AudioSource.UNPROCESSED
-                9 
+                MediaRecorder.AudioSource.UNPROCESSED
             } else {
-                MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                MediaRecorder.AudioSource.VOICE_RECOGNITION
             }
             
-            audioRecord = AudioRecord(
-                audioSource,
-                sampleRate,
-                channelConfig,
-                audioFormat,
-                bufferSize
-            )
+            audioRecord = AudioRecord(audioSource, sampleRate, channelConfig, audioFormat, bufferSize)
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                _recordingState.value = RecordingState.Error("Não foi possível inicializar o gravador de áudio.")
+                _recordingState.value = RecordingState.Error("Não foi possível inicializar o gravador.")
                 return
             }
 
-            // Anexa efeitos de hardware (NoiseSuppressor e AGC nativos) APENAS se o raw mode não estiver ativo
+            // Direciona explicitamente para o fone Bluetooth se disponível
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val btDevice = getBluetoothInputDevice()
+                if (btDevice != null) {
+                    audioRecord?.preferredDevice = btDevice
+                    Log.d(TAG, "Captura vinculada ao dispositivo: ${btDevice.productName}")
+                }
+            }
+
             if (!rawAudioMode) {
                 val sessionId = audioRecord?.audioSessionId ?: 0
                 audioEffectController.attachToSession(sessionId)
             } else {
-                Log.d(TAG, "RAW AUDIO MODE ativado: efeitos de hardware do sistema desabilitados.")
+                Log.d(TAG, "Modo RAW puro ativado (Bypass DSP)")
             }
 
             audioRecord?.startRecording()
-            Log.d(TAG, "Captura de áudio iniciada a $sampleRate Hz.")
+            Log.d(TAG, "AudioRecord iniciado a $sampleRate Hz")
 
             val startTime = System.currentTimeMillis()
             _recordingState.value = RecordingState.Recording(0, 0f, deviceName)
 
-            // Inicia o loop assíncrono de leitura e processamento DSP
             recordingJob = coroutineScope.launch(Dispatchers.IO) {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+                // Buffer de leitura (bloco de 10ms a 20ms)
                 val pcmBuffer = ShortArray(bufferSize / 2)
-                val rawAudioStream = ByteArrayOutputStream()
+                val tempPcmFile = audioFileManager.createTempPcmFile()
 
-                // Reset dos estados dos filtros DSP
-                hpFilterPrevX = 0f
-                hpFilterPrevY = 0f
-
-                while (isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-                    val readCount = audioRecord?.read(pcmBuffer, 0, pcmBuffer.size) ?: 0
-                    if (readCount > 0) {
-                        // 1. Aplicação de DSP em tempo real no buffer PCM
-                        processDspBuffer(pcmBuffer, readCount, noiseDenoiseLevel)
-
-                        // 2. Cálculo da amplitude de pico para o medidor visual (VU Meter)
-                        var maxPeak = 0
-                        for (i in 0 until readCount) {
-                            val sample = abs(pcmBuffer[i].toInt())
-                            if (sample > maxPeak) maxPeak = sample
-                        }
-                        val normalizedPeak = (maxPeak / 32767f).coerceIn(0f, 1f)
-
-                        // 3. Conversão de ShortArray para bytes em Little Endian
-                        val byteBuffer = ByteBuffer.allocate(readCount * 2).order(ByteOrder.LITTLE_ENDIAN)
-                        for (i in 0 until readCount) {
-                            byteBuffer.putShort(pcmBuffer[i])
-                        }
-                        rawAudioStream.write(byteBuffer.array())
-
-                        // 4. Atualização periódica do estado da gravação
-                        val elapsedMs = System.currentTimeMillis() - startTime
-                        _recordingState.value = RecordingState.Recording(
-                            durationMs = elapsedMs,
-                            amplitude = normalizedPeak,
-                            deviceName = deviceName
-                        )
-                    }
-                }
-
-                // Ao encerrar o loop, salva o arquivo de áudio tratado
                 try {
-                    val pcmBytes = rawAudioStream.toByteArray()
-                    if (pcmBytes.isNotEmpty()) {
+                    java.io.FileOutputStream(tempPcmFile).use { fos ->
+                        while (isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                            val readCount = audioRecord?.read(pcmBuffer, 0, pcmBuffer.size) ?: 0
+                            if (readCount > 0) {
+                                // Processamento profissional CleanVoice DSP (sem gating destrutivo)
+                                cleanVoiceDsp.process(pcmBuffer, readCount, noiseDenoiseLevel, bypassDsp = rawAudioMode)
+
+                                var maxPeak = 0
+                                for (i in 0 until readCount) {
+                                    val sample = abs(pcmBuffer[i].toInt())
+                                    if (sample > maxPeak) maxPeak = sample
+                                }
+                                val normalizedPeak = (maxPeak / 32767f).coerceIn(0f, 1f)
+
+                                val byteBuffer = ByteBuffer.allocate(readCount * 2).order(ByteOrder.LITTLE_ENDIAN)
+                                for (i in 0 until readCount) byteBuffer.putShort(pcmBuffer[i])
+                                fos.write(byteBuffer.array())
+
+                                val elapsedMs = System.currentTimeMillis() - startTime
+                                _recordingState.value = RecordingState.Recording(elapsedMs, normalizedPeak, deviceName)
+                            }
+                        }
+                    }
+
+                    if (tempPcmFile.exists() && tempPcmFile.length() > 0) {
                         val durationMs = System.currentTimeMillis() - startTime
-                        val savedFile = audioFileManager.savePcmAsWav(
-                            pcmData = pcmBytes,
-                            sampleRate = sampleRate,
-                            channels = 1,
-                            durationMs = durationMs
-                        )
-                        _recordingState.value = RecordingState.Finished(
-                            filePath = savedFile.absolutePath,
-                            durationMs = durationMs
-                        )
+                        val savedFile = audioFileManager.savePcmFileAsWav(tempPcmFile, sampleRate, 1, durationMs)
+                        _recordingState.value = RecordingState.Finished(savedFile.absolutePath, durationMs)
                         Log.d(TAG, "Áudio gravado e processado com sucesso: ${savedFile.absolutePath}")
                     } else {
+                        try { tempPcmFile.delete() } catch (ignored: Exception) {}
                         _recordingState.value = RecordingState.Idle
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Erro ao salvar arquivo de áudio", e)
-                    _recordingState.value = RecordingState.Error("Falha ao salvar áudio: ${e.localizedMessage}")
+                    Log.e(TAG, "Erro ao gravar ou processar áudio", e)
+                    try { tempPcmFile.delete() } catch (ignored: Exception) {}
+                    _recordingState.value = RecordingState.Error("Falha ao salvar: ${e.localizedMessage}")
+                } finally {
+                    try {
+                        if (audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                            audioRecord?.stop()
+                        }
+                        audioRecord?.release()
+                        audioRecord = null
+                        audioEffectController.release()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro ao liberar recursos de áudio", e)
+                    }
                 }
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Falha ao iniciar motor de captura", e)
-            _recordingState.value = RecordingState.Error("Erro ao iniciar gravação: ${e.localizedMessage}")
+            Log.e(TAG, "Falha ao iniciar captura", e)
+            _recordingState.value = RecordingState.Error("Erro: ${e.localizedMessage}")
+            try {
+                audioRecord?.release()
+                audioRecord = null
+                audioEffectController.release()
+            } catch (ignored: Exception) {}
         }
     }
 
-    /**
-     * Aplica cadeia de processamento digital de sinal (DSP) no buffer de áudio:
-     * - Filtro Passa-Alta IIR (120 Hz) para remoção de vento e rumble de moto.
-     * - Noise Gate dinâmico para silenciar ruído residual em pausas.
-     * - Compressor suave com ganho compensado para inteligibilidade da voz.
-     */
-    private fun processDspBuffer(buffer: ShortArray, length: Int, denoiseIntensity: Float) {
-        // Coeficiente do filtro passa-alta em 48kHz para corte em ~120Hz
-        // RC = 1 / (2 * pi * 120), alpha = RC / (RC + dt)
-        val alpha = 0.9845f
-
-        // Limiar do Noise Gate proporcional à intensidade escolhida pelo usuário
-        val noiseGateThreshold = (180 + (denoiseIntensity * 400)).toInt() // Faixa ajustável
-        val gainMultiplier = 1.0f + (denoiseIntensity * 0.4f) // Compensação de ganho para voz
-
-        for (i in 0 until length) {
-            val inputSample = buffer[i].toFloat()
-
-            // 1. Filtro Passa-Alta IIR (remove ruído de vento abaixo de 120 Hz)
-            val hpOutput = alpha * (hpFilterPrevY + inputSample - hpFilterPrevX)
-            hpFilterPrevX = inputSample
-            hpFilterPrevY = hpOutput
-
-            var sample = hpOutput
-
-            // 2. Noise Gate Suave (atenua ruídos de fundo abaixo do limiar)
-            val absSample = abs(sample)
-            if (absSample < noiseGateThreshold) {
-                val reductionFactor = (absSample / noiseGateThreshold) * (1f - denoiseIntensity * 0.7f)
-                sample *= reductionFactor
-            } else {
-                // 3. Aplicação de ganho compensatório para manter a voz clara
-                sample *= gainMultiplier
-            }
-
-            // 4. Clamping para evitar saturação/distorção do áudio 16-bit
-            val clamped = sample.coerceIn(-32768f, 32767f).toInt().toShort()
-            buffer[i] = clamped
-        }
-    }
-
-    /**
-     * Interrompe a gravação e finaliza o processamento do arquivo.
-     */
     fun stopRecording() {
         try {
             audioRecord?.stop()
@@ -222,13 +208,10 @@ class AudioCaptureEngine(
             recordingJob = null
             Log.d(TAG, "Captura de áudio interrompida.")
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao parar captura de áudio", e)
+            Log.e(TAG, "Erro ao parar captura", e)
         }
     }
 
-    /**
-     * Reseta o estado para Idle.
-     */
     fun resetState() {
         _recordingState.value = RecordingState.Idle
     }

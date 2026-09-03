@@ -1,12 +1,6 @@
 package com.btmicpro.ui
 
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.layout.ContentScale
-import com.btmicpro.R
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -14,6 +8,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,43 +23,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SportsMotorsports
-import androidx.compose.material.icons.filled.Umbrella
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.HeadsetMic
-import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.animation.Crossfade
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.text.font.FontStyle
-import kotlinx.coroutines.delay
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -73,6 +45,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,60 +54,57 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.btmicpro.core.RecordingItem
-import com.btmicpro.core.RecordingState
+import com.btmicpro.R
 import com.btmicpro.core.RouterState
 import com.btmicpro.ui.theme.AccentRed
-import com.btmicpro.ui.theme.PrimaryDark
 import com.btmicpro.ui.theme.PrimaryNeon
 import com.btmicpro.ui.theme.WarningAmber
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun MainScreen(viewModel: MainViewModel) {
-    var currentScreen by remember { mutableStateOf("MAIN") }
-
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        if (currentScreen == "MAIN") {
-            MotoWhatsAppModeScreen(
-                viewModel = viewModel,
-                onNavigateToRecorder = { currentScreen = "RECORDER" }
-            )
-        } else {
-            AdvancedRecorderScreen(
-                viewModel = viewModel,
-                onNavigateBack = { currentScreen = "MAIN" }
-            )
-        }
+        MotoWhatsAppModeScreen(viewModel = viewModel)
     }
 }
 
 @Composable
-fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () -> Unit) {
+fun MotoWhatsAppModeScreen(viewModel: MainViewModel) {
     val routerState by viewModel.routerState.collectAsState()
     val isRouterEnabled by viewModel.isRouterEnabled.collectAsState()
     val isRawAudioMode by viewModel.isRawAudioMode.collectAsState()
+    val denoiseIntensity by viewModel.denoiseIntensity.collectAsState()
+    val isLiveMonitorEnabled by viewModel.isLiveMonitorEnabled.collectAsState()
+    val autoStartOnBoot by viewModel.autoStartOnBoot.collectAsState()
     val showPromoPopup by viewModel.showPromoPopup.collectAsState()
+    val isBarModeEnabled by viewModel.isBarModeEnabled.collectAsState()
+    val isFloatingButtonEnabled by viewModel.isFloatingButtonEnabled.collectAsState()
+    val barBoostLevel by viewModel.barBoostLevel.collectAsState()
     val uriHandler = LocalUriHandler.current
+    val scrollState = rememberScrollState()
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // App Title
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.Bottom
         ) {
@@ -153,7 +123,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "v1.0.2",
+                text = "v1.2.0 Pro",
                 color = Color.Gray,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
@@ -161,7 +131,7 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         // Info Header
         Row(
@@ -170,44 +140,205 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("RIDER 1", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("[Intercom 50%]", color = Color.Gray, fontSize = 14.sp)
+                Text("[CleanVoice DSP]", color = Color.Gray, fontSize = 14.sp)
             }
             Box(modifier = Modifier.width(1.dp).height(40.dp).background(Color.DarkGray))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("PHONE", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("[Galaxy S22 Ultra]", color = Color.Gray, fontSize = 14.sp)
+                Text("[KingKong X Pro]", color = Color.Gray, fontSize = 14.sp)
             }
         }
 
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
-        // Massive Central Button
+        // Botão Central de Roteamento (MOTO WHATSAPP MODE)
         RouterControlCard(
             isRouterEnabled = isRouterEnabled,
             routerState = routerState,
             onToggleRouter = { viewModel.toggleRouter(it) }
         )
 
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // Raw Audio Mode Toggle
+        // === NOVO: MONITOR AO VIVO / OUVIDO NO CAPACETE (Estilo Noise Uncanceller) ===
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+            border = androidx.compose.foundation.BorderStroke(
+                1.5.dp, 
+                if (isLiveMonitorEnabled) PrimaryNeon else Color.DarkGray
+            )
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            "OUVIR CAPACETE AO VIVO 🎧",
+                            color = if (isLiveMonitorEnabled) PrimaryNeon else Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            if (isLiveMonitorEnabled) "Monitorando áudio com CleanVoice DSP (Sem cortes)"
+                            else "Escute seu microfone em tempo real para regular antes de rodar",
+                            color = Color.Gray,
+                            fontSize = 10.sp
+                        )
+                    }
+                    Switch(
+                        checked = isLiveMonitorEnabled,
+                        onCheckedChange = { viewModel.toggleLiveMonitor(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = PrimaryNeon,
+                            uncheckedThumbColor = Color.LightGray,
+                            uncheckedTrackColor = Color.DarkGray
+                        )
+                    )
+                }
+
+                // Slider de Sensibilidade da Redução de Vento DSP
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Intensidade Anti-Vento (DSP)", color = Color.LightGray, fontSize = 11.sp)
+                    Text("${(denoiseIntensity * 100).toInt()}%", color = PrimaryNeon, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = denoiseIntensity,
+                    onValueChange = { viewModel.setDenoiseIntensity(it) },
+                    valueRange = 0.40f..1.0f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = PrimaryNeon,
+                        activeTrackColor = PrimaryNeon,
+                        inactiveTrackColor = Color.DarkGray
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Toggles lado a lado para economizar espaço
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("RAW AUDIO", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text("Bypass DSP", color = Color.Gray, fontSize = 9.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Spacer(modifier = Modifier.height(4.dp))
+                Switch(
+                    checked = isRawAudioMode,
+                    onCheckedChange = { viewModel.setRawAudioMode(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = PrimaryNeon,
+                        uncheckedThumbColor = Color.LightGray,
+                        uncheckedTrackColor = Color.DarkGray
+                    )
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("AUTO INICIAR", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text("Liga sozinho", color = Color.Gray, fontSize = 9.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Spacer(modifier = Modifier.height(4.dp))
+                Switch(
+                    checked = autoStartOnBoot,
+                    onCheckedChange = { viewModel.setAutoStartOnBoot(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = PrimaryNeon,
+                        uncheckedThumbColor = Color.LightGray,
+                        uncheckedTrackColor = Color.DarkGray
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // === MODO BAR - Aumentador de volume de mídia ===
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, if (isBarModeEnabled) PrimaryNeon else Color.DarkGray)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("MODO BAR 🔊", color = if (isBarModeEnabled) PrimaryNeon else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(
+                            "Aumenta volume da mídia até +8dB para bar/ruído",
+                            color = Color.Gray, fontSize = 10.sp
+                        )
+                    }
+                    Switch(
+                        checked = isBarModeEnabled,
+                        onCheckedChange = { viewModel.toggleBarMode(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = PrimaryNeon,
+                            uncheckedThumbColor = Color.LightGray,
+                            uncheckedTrackColor = Color.DarkGray
+                        )
+                    )
+                }
+                if (isBarModeEnabled) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Boost", color = Color.Gray, fontSize = 11.sp)
+                        Text("${barBoostLevel}%", color = PrimaryNeon, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = barBoostLevel.toFloat(),
+                        onValueChange = { viewModel.setBarBoostLevel(it.toInt()) },
+                        valueRange = 0f..100f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = PrimaryNeon,
+                            activeTrackColor = PrimaryNeon,
+                            inactiveTrackColor = Color.DarkGray
+                        )
+                    )
+                    Text("0% (normal)  •  100% (+8dB max)", color = Color.Gray, fontSize = 9.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Botão Flutuante
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                Text("RAW AUDIO MODE", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(
-                    "Bypass phone DSP to prevent voice distortion in high winds",
-                    color = Color.Gray,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-            }
+            Text("Botão Flutuante", color = if (isFloatingButtonEnabled) PrimaryNeon else Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             Switch(
-                checked = isRawAudioMode,
-                onCheckedChange = { viewModel.setRawAudioMode(it) },
+                checked = isFloatingButtonEnabled,
+                onCheckedChange = { viewModel.toggleFloatingButton(it) },
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
                     checkedTrackColor = PrimaryNeon,
@@ -217,7 +348,9 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
             )
         }
 
-        // Dynamic Carousel Promotional Footer
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Dynamic Carousel Promotional Footer (Shopee)
         if (showPromoPopup) {
             val promoList = remember {
                 listOf(
@@ -229,9 +362,8 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                 )
             }
 
-            var currentPromoIndex by remember { mutableIntStateOf(0) }
+            var currentPromoIndex by remember { mutableStateOf(0) }
 
-            // Auto-rotate every 4 seconds
             LaunchedEffect(Unit) {
                 while (true) {
                     delay(4000)
@@ -274,7 +406,6 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                     }
                 }
 
-                // Close Button in top right corner
                 IconButton(
                     onClick = { viewModel.dismissPromoPopup() },
                     modifier = Modifier
@@ -292,116 +423,6 @@ fun MotoWhatsAppModeScreen(viewModel: MainViewModel, onNavigateToRecorder: () ->
                 }
             }
         }
-
-        // Bottom Sliders & Settings Mockup
-        Card(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp).clickable { onNavigateToRecorder() },
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.DarkGray)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("MIC GAIN", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    Slider(
-                        value = 0.65f, onValueChange = {},
-                        colors = SliderDefaults.colors(thumbColor = PrimaryNeon, activeTrackColor = PrimaryNeon, inactiveTrackColor = Color.DarkGray)
-                    )
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("SPEAKER VOL", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    Slider(
-                        value = 0.8f, onValueChange = {},
-                        colors = SliderDefaults.colors(thumbColor = PrimaryNeon, activeTrackColor = PrimaryNeon, inactiveTrackColor = Color.DarkGray)
-                    )
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings", tint = PrimaryNeon)
-                    Text("RECORDER", color = PrimaryNeon, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun AdvancedRecorderScreen(viewModel: MainViewModel, onNavigateBack: () -> Unit) {
-    val recordingState by viewModel.recordingState.collectAsState()
-    val denoiseIntensity by viewModel.denoiseIntensity.collectAsState()
-    val autoStartOnBoot by viewModel.autoStartOnBoot.collectAsState()
-    val recordingsList by viewModel.recordingsList.collectAsState()
-    val currentlyPlayingPath by viewModel.currentlyPlayingPath.collectAsState()
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onNavigateBack) {
-                    Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back", tint = PrimaryNeon)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Advanced Recorder",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        item {
-            RecorderCard(
-                recordingState = recordingState,
-                denoiseIntensity = denoiseIntensity,
-                onStartRecording = { viewModel.startRecording() },
-                onStopRecording = { viewModel.stopRecording() },
-                onDenoiseChange = { viewModel.setDenoiseIntensity(it) }
-            )
-        }
-
-        item {
-            SettingsCard(
-                autoStartOnBoot = autoStartOnBoot,
-                onToggleAutoStart = { viewModel.setAutoStartOnBoot(it) }
-            )
-        }
-
-        item {
-            RecordingsHeaderSection(totalItems = recordingsList.size)
-        }
-
-        if (recordingsList.isEmpty()) {
-            item {
-                EmptyRecordingsPlaceholder()
-            }
-        } else {
-            items(recordingsList, key = { it.id }) { item ->
-                RecordingListItem(
-                    item = item,
-                    isPlaying = currentlyPlayingPath == item.filePath,
-                    onPlayToggle = { viewModel.togglePlayback(item) },
-                    onShareWhatsApp = { viewModel.shareAudioToWhatsApp(item.filePath) },
-                    onDelete = { viewModel.deleteRecording(item) }
-                )
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(24.dp))
-        }
     }
 }
 
@@ -411,10 +432,13 @@ fun RouterControlCard(
     routerState: RouterState,
     onToggleRouter: (Boolean) -> Unit
 ) {
+    val isConnected = routerState is RouterState.RoutingActive
+    val deviceName = if (routerState is RouterState.RoutingActive) (routerState as RouterState.RoutingActive).device.name else ""
+    
     val statusColor by animateColorAsState(
         targetValue = when {
             !isRouterEnabled -> Color.Gray
-            routerState is RouterState.RoutingActive -> PrimaryNeon
+            isConnected -> PrimaryNeon
             routerState is RouterState.WaitingDevice -> WarningAmber
             else -> AccentRed
         },
@@ -422,12 +446,14 @@ fun RouterControlCard(
     )
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .size(160.dp)
+                .size(144.dp)
                 .clip(CircleShape)
                 .background(if (isRouterEnabled) PrimaryNeon.copy(alpha = 0.15f) else Color.DarkGray.copy(alpha = 0.3f))
                 .border(
@@ -443,33 +469,33 @@ fun RouterControlCard(
                     imageVector = Icons.Default.PowerSettingsNew,
                     contentDescription = null,
                     tint = statusColor,
-                    modifier = Modifier.size(40.dp).padding(bottom = 2.dp)
+                    modifier = Modifier.size(38.dp).padding(bottom = 4.dp)
                 )
                 Text(
-                    text = "MOTO",
+                    text = if (isConnected) deviceName else "MOTO",
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Black,
                     color = statusColor,
-                    fontSize = 24.sp
+                    fontSize = if (isConnected) 16.sp else 21.sp
                 )
                 Text(
-                    text = "WHATSAPP",
+                    text = if (isConnected) "" else "WHATSAPP",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
-                    fontSize = 18.sp
+                    fontSize = if (isConnected) 11.sp else 14.sp
                 )
                 Text(
-                    text = "MODE",
+                    text = if (isConnected) "MODE" else "MODE",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
-                    fontSize = 14.sp
+                    fontSize = if (isConnected) 10.sp else 11.sp
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -477,7 +503,7 @@ fun RouterControlCard(
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(
-                imageVector = if (routerState is RouterState.RoutingActive) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
+                imageVector = if (isConnected) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
                 contentDescription = null,
                 tint = statusColor,
                 modifier = Modifier.size(24.dp)
@@ -485,8 +511,8 @@ fun RouterControlCard(
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = when {
-                    !isRouterEnabled -> "DESATIVADO"
-                    routerState is RouterState.RoutingActive -> "CONECTADO: ${(routerState as RouterState.RoutingActive).device.name}"
+                    !isRouterEnabled -> "DESATIVADO - Toque para ativar"
+                    isConnected -> "CONECTADO: $deviceName"
                     routerState is RouterState.WaitingDevice -> "AGUARDANDO CAPACETE..."
                     routerState is RouterState.Error -> "ERRO: ${(routerState as RouterState.Error).message}"
                     else -> "INATIVO"
@@ -496,297 +522,14 @@ fun RouterControlCard(
                 color = statusColor
             )
         }
-    }
-}
-
-@Composable
-fun RecorderCard(
-    recordingState: RecordingState,
-    denoiseIntensity: Float,
-    onStartRecording: () -> Unit,
-    onStopRecording: () -> Unit,
-    onDenoiseChange: (Float) -> Unit
-) {
-    val isRecording = recordingState is RecordingState.Recording
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            // Visualizer & Recorder Controls (Mockup Style)
-            if (isRecording) {
-                val state = recordingState as RecordingState.Recording
-                val seconds = (state.durationMs / 1000) % 60
-                val minutes = (state.durationMs / 1000) / 60
-                val timeFormatted = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "AUDIO INPUT",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = timeFormatted,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = PrimaryNeon,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Faux sound wave
-                    LinearProgressIndicator(
-                        progress = { state.amplitude },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        color = PrimaryNeon,
-                        trackColor = PrimaryDark.copy(alpha = 0.3f)
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
-            }
-            
-            // Record Button
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(if (isRecording) AccentRed else Color.DarkGray)
-                        .border(2.dp, if (isRecording) Color.White else Color.Gray, CircleShape)
-                        .clickable { if (isRecording) onStopRecording() else onStartRecording() }
-                )
-            }
-            Text(
-                text = if (isRecording) "STOP" else "RECORD",
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                color = if (isRecording) AccentRed else Color.Gray,
-                fontWeight = FontWeight.Bold,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            Text(
-                text = "Recorder Controls",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("Noise Gate Intensity", color = Color.LightGray)
-                Text("${(denoiseIntensity * 100).toInt()}%", color = Color.White)
-            }
-            
-            Slider(
-                value = denoiseIntensity,
-                onValueChange = onDenoiseChange,
-                valueRange = 0.1f..1.0f,
-                colors = SliderDefaults.colors(
-                    thumbColor = PrimaryNeon,
-                    activeTrackColor = PrimaryNeon,
-                    inactiveTrackColor = Color.DarkGray
-                )
-            )
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("0", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                Text("100%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            }
-            Text(
-                text = "Suppresses background engine noise when below threshold.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-    }
-}
-
-@Composable
-fun SettingsCard(
-    autoStartOnBoot: Boolean,
-    onToggleAutoStart: (Boolean) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Iniciar com o Celular",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Reativa o roteamento de microfone após reiniciar",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                )
-            }
-            Switch(
-                checked = autoStartOnBoot,
-                onCheckedChange = onToggleAutoStart,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = PrimaryDark
-                )
-            )
-        }
-    }
-}
-
-@Composable
-fun RecordingsHeaderSection(totalItems: Int) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "SAVED RECORDINGS",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = Color.Gray
+            text = if (isRouterEnabled) "CleanVoice DSP Ativo • Zero delay no WhatsApp • Sem cortes" else "Ative para gravar e falar pelo microfone do capacete",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Gray,
+            modifier = Modifier.padding(horizontal = 16.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
-    }
-}
-
-@Composable
-fun EmptyRecordingsPlaceholder() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                modifier = Modifier.size(40.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Nenhuma gravação recente",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-            )
-            Text(
-                text = "Grave um áudio tratado acima para ouvir e enviar no WhatsApp",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-            )
-        }
-    }
-}
-
-@Composable
-fun RecordingListItem(
-    item: RecordingItem,
-    isPlaying: Boolean,
-    onPlayToggle: () -> Unit,
-    onShareWhatsApp: () -> Unit,
-    onDelete: () -> Unit
-) {
-    val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-    val dateString = dateFormat.format(Date(item.timestamp))
-    val seconds = (item.durationMs / 1000) % 60
-    val minutes = (item.durationMs / 1000) / 60
-    val durationFormatted = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.DarkGray)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Informações do Arquivo
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.fileName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
-                )
-                Text(
-                    text = "$durationFormatted  4.2 MB  $dateString",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
-
-            // Botão Play / Pause
-            IconButton(onClick = onPlayToggle) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = PrimaryNeon
-                )
-            }
-
-            // Ação: Compartilhar no WhatsApp
-            IconButton(onClick = onShareWhatsApp) {
-                Icon(
-                    imageVector = Icons.Default.Share,
-                    contentDescription = "Enviar no WhatsApp",
-                    tint = Color.LightGray
-                )
-            }
-
-            // Ação: Excluir
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Excluir",
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                )
-            }
-        }
     }
 }
 

@@ -23,8 +23,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Serviço em primeiro plano (Foreground Service) encarregado de manter o roteamento do microfone
- * Bluetooth ativo ininterruptamente em segundo plano para o WhatsApp e outros aplicativos.
+ * V2.2 - Fix WhatsApp: Não usa mais phoneCall para não ser detectado como ligação.
+ * Usa apenas microphone|connectedDevice + MODE_NORMAL + setCommunicationDevice
  */
 class BtMicService : Service() {
 
@@ -36,14 +36,13 @@ class BtMicService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "Criando BtMicService (Foreground Service).")
+        Log.d(TAG, "Criando BtMicService V2.2 - Sem phoneCall (fix WhatsApp)")
 
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
 
         audioRouter = BluetoothAudioRouter(this, serviceScope)
 
-        // Observa alterações no estado do roteador para atualizar a notificação dinamicamente
         serviceScope.launch {
             audioRouter.routerState.collect { state ->
                 updateNotification(state)
@@ -60,37 +59,36 @@ class BtMicService : Service() {
             return START_NOT_STICKY
         }
 
-        // Inicia o serviço em primeiro plano com notificação inicial
         val initialNotification = buildNotification(
             title = getString(R.string.notification_title_waiting),
             content = getString(R.string.notification_desc_waiting)
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                initialNotification,
+            // FIX: Removido PHONE_CALL para WhatsApp não detectar como ligação
+            val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            } else {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            )
+            }
+            startForeground(NOTIFICATION_ID, initialNotification, serviceType)
         } else {
             startForeground(NOTIFICATION_ID, initialNotification)
         }
 
-        // Inicia o roteamento do microfone Bluetooth
         audioRouter.startRouting()
+        com.btmicpro.core.RouterStateHolder.updateServiceRunning(true)
 
         return START_STICKY
     }
 
-    /**
-     * Atualiza o conteúdo da notificação conforme o estado do roteamento Bluetooth.
-     */
     private fun updateNotification(state: RouterState) {
         val notification = when (state) {
             is RouterState.RoutingActive -> {
                 buildNotification(
                     title = getString(R.string.notification_title_active),
-                    content = "Conectado a: ${state.device.name} (Modo WhatsApp Ativo)"
+                    content = "Conectado a: ${state.device.name} (Ativo)"
                 )
             }
             is RouterState.WaitingDevice -> {
@@ -111,28 +109,19 @@ class BtMicService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    /**
-     * Constrói a notificação persistente com ações de retorno ao app e parada.
-     */
     private fun buildNotification(title: String, content: String): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingOpenApp = PendingIntent.getActivity(
-            this,
-            0,
-            openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 0, openAppIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val stopIntent = Intent(this, BtMicService::class.java).apply {
             action = ACTION_STOP_SERVICE
         }
         val pendingStop = PendingIntent.getService(
-            this,
-            1,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 1, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -150,9 +139,6 @@ class BtMicService : Service() {
             .build()
     }
 
-    /**
-     * Cria o canal de notificações necessário para Android 8.0 (API 26) ou superior.
-     */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -169,7 +155,8 @@ class BtMicService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "Destruindo BtMicService. Liberando recursos.")
+        Log.d(TAG, "Destruindo BtMicService")
+        com.btmicpro.core.RouterStateHolder.updateServiceRunning(false)
         audioRouter.stopRouting()
         serviceScope.cancel()
     }
@@ -182,9 +169,6 @@ class BtMicService : Service() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_STOP_SERVICE = "com.btmicpro.ACTION_STOP_SERVICE"
 
-        /**
-         * Inicia o serviço de roteamento em primeiro plano de forma compatível com todas as versões do Android.
-         */
         fun start(context: Context) {
             val intent = Intent(context, BtMicService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -194,9 +178,6 @@ class BtMicService : Service() {
             }
         }
 
-        /**
-         * Para o serviço de roteamento.
-         */
         fun stop(context: Context) {
             val intent = Intent(context, BtMicService::class.java).apply {
                 action = ACTION_STOP_SERVICE
