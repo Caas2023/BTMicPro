@@ -10,6 +10,7 @@ class BtMicProApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.btmicpro.core.AppLogger.init(this)
         Log.d(TAG, "BT Mic Pro inicializado com sucesso.")
     }
 

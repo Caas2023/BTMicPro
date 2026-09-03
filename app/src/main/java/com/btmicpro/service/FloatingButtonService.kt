@@ -49,6 +49,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import android.os.Handler
 import android.os.Looper
 
@@ -82,7 +83,17 @@ class FloatingButtonService : Service() {
         }
 
         prefs = getSharedPreferences(BootReceiver.PREFS_NAME, Context.MODE_PRIVATE)
-        isEnabledFlow.value = prefs!!.getBoolean(BootReceiver.KEY_ROUTER_ENABLED, false)
+        val initialRunning = com.btmicpro.core.RouterStateHolder.isServiceRunning.value ||
+                prefs!!.getBoolean(BootReceiver.KEY_ROUTER_ENABLED, false)
+        isEnabledFlow.value = initialRunning
+
+        // Sincronização bidirecional em tempo real com o botão principal do app
+        serviceScope.launch {
+            com.btmicpro.core.RouterStateHolder.isServiceRunning.collect { isRunning ->
+                isEnabledFlow.value = isRunning
+                prefs?.edit()?.putBoolean(BootReceiver.KEY_ROUTER_ENABLED, isRunning)?.apply()
+            }
+        }
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
@@ -179,9 +190,11 @@ class FloatingButtonService : Service() {
     }
 
     private fun toggleRouter() {
-        val newEnabled = !isEnabledFlow.value
+        val currentlyRunning = com.btmicpro.core.RouterStateHolder.isServiceRunning.value
+        val newEnabled = !currentlyRunning
         isEnabledFlow.value = newEnabled
         prefs?.edit()?.putBoolean(BootReceiver.KEY_ROUTER_ENABLED, newEnabled)?.apply()
+        com.btmicpro.core.RouterStateHolder.updateServiceRunning(newEnabled)
 
         if (newEnabled) {
             BtMicService.start(this)

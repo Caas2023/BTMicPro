@@ -2,40 +2,61 @@ package com.btmicpro.core
 
 import android.media.AudioAttributes
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioTrack
 import android.os.Build
 import android.util.Log
 
 /**
- * Mantém um AudioTrack tocando silêncio em loop para impedir que o
- * sistema desligue o canal SCO Bluetooth por timeout.
- *
- * Sem fluxo de áudio real, o Android desliga o SCO em ~15-30s.
- * Com silêncio contínuo, o SCO fica estável por horas.
- *
- * Usa 16kHz mono que é o nativo do SCO mSBC - evita reamostragem.
+ * Estados operacionais do keep-alive experimental (Item 26 do Prompt Master).
  */
-class SilentAudioKeeper {
+enum class ScoKeepAliveState {
+    DISABLED,
+    TESTING,
+    ACTIVE,
+    FAILED
+}
+
+/**
+ * ExperimentalScoKeepAlive — Componente estritamente experimental para manter o canal SCO ativo (Itens 26, 27, 28).
+ *
+ * Diretrizes:
+ * - Não presume mSBC nem promete manter o canal vivo permanentemente sem comprovação.
+ * - Desativado por padrão (useExperimentalKeepAlive = false).
+ * - Não interfere no áudio do WhatsApp (não causa mute, nem rouba foco, nem emite som perceptível).
+ * - Se detectar qualquer falha ou interferência, transita imediatamente para FAILED e libera o AudioTrack.
+ */
+class ExperimentalScoKeepAlive {
+
+    var state: ScoKeepAliveState = ScoKeepAliveState.DISABLED
+        private set
 
     private var audioTrack: AudioTrack? = null
-    private var isKeepingAlive = false
+    private var isRunning = false
+    private var playbackThread: Thread? = null
 
     /**
-     * Inicia o keep-alive de áudio silencioso.
-     * Deve ser chamado APÓS setar MODE_IN_COMMUNICATION.
+     * Inicia o keep-alive experimental com geração de PCM silencioso em baixo consumo.
      */
-    fun start() {
-        if (isKeepingAlive) {
-            Log.d(TAG, "SilentAudioKeeper já ativo")
-            return
+    @Synchronized
+    fun start(sampleRate: Int = 16000): Boolean {
+        if (state == ScoKeepAliveState.ACTIVE) {
+            Log.d(TAG, "ExperimentalScoKeepAlive já está ativo.")
+            return true
         }
 
+        state = ScoKeepAliveState.TESTING
+        Log.i(TAG, "Iniciando teste de keep-alive experimental em ${sampleRate}Hz...")
+
         try {
-            val sampleRate = 16000 // Nativo mSBC SCO
             val channelConfig = AudioFormat.CHANNEL_OUT_MONO
             val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-            val bufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+
+            if (minBufferSize <= 0) {
+                Log.w(TAG, "Tamanho de buffer inválido ($minBufferSize) para taxa $sampleRate.")
+                state = ScoKeepAliveState.FAILED
+                return false
+            }
 
             val audioAttributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -51,7 +72,7 @@ class SilentAudioKeeper {
             audioTrack = AudioTrack.Builder()
                 .setAudioAttributes(audioAttributes)
                 .setAudioFormat(format)
-                .setBufferSizeInBytes(bufferSize * 2)
+                .setBufferSizeInBytes(minBufferSize * 2)
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .apply {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -60,46 +81,56 @@ class SilentAudioKeeper {
                 }
                 .build()
 
-            // Buffer de silêncio (zeros) - PCM 16-bit mono
-            val silenceBuffer = ShortArray(bufferSize / 2) // todos zeros = silêncio
+            val silenceBuffer = ShortArray(minBufferSize / 2) // Todos zeros = silêncio digital absoluto
 
             audioTrack?.let { track ->
                 track.play()
+                isRunning = true
 
-                // Thread dedicada para bombear silêncio contínuo
-                Thread {
-                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+                playbackThread = Thread {
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
                     try {
-                        while (isKeepingAlive && track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                        while (isRunning && track.playState == AudioTrack.PLAYSTATE_PLAYING) {
                             track.write(silenceBuffer, 0, silenceBuffer.size)
-                            // Pequeno sleep para não queimar CPU - 20ms = 320 amostras a 16kHz
-                            Thread.sleep(20)
+                            Thread.sleep(30) // Reduz taxa de ciclo de CPU
                         }
                     } catch (e: InterruptedException) {
-                        Log.d(TAG, "Silent keeper thread interrompida")
+                        Log.d(TAG, "Thread de keep-alive experimental interrompida.")
                     } catch (e: Exception) {
-                        Log.e(TAG, "Erro no silent keeper loop", e)
+                        Log.e(TAG, "Erro no loop do keep-alive experimental", e)
+                        state = ScoKeepAliveState.FAILED
                     }
                 }.apply {
-                    name = "SilentAudioKeeper"
+                    name = "ExperimentalScoKeepAlive"
                     isDaemon = true
                     start()
                 }
 
-                isKeepingAlive = true
-                Log.d(TAG, "SilentAudioKeeper iniciado a ${sampleRate}Hz - SCO manterá vivo")
+                state = ScoKeepAliveState.ACTIVE
+                Log.i(TAG, "ExperimentalScoKeepAlive iniciado com estado ACTIVE.")
+                return true
             }
+
+            state = ScoKeepAliveState.FAILED
+            return false
+
         } catch (e: Exception) {
-            Log.e(TAG, "Falha ao iniciar SilentAudioKeeper", e)
+            Log.e(TAG, "Falha ao inicializar ExperimentalScoKeepAlive", e)
             stop()
+            state = ScoKeepAliveState.FAILED
+            return false
         }
     }
 
     /**
-     * Para o keep-alive e libera recursos.
+     * Interrompe o keep-alive e libera recursos de áudio.
      */
+    @Synchronized
     fun stop() {
-        isKeepingAlive = false
+        isRunning = false
+        playbackThread?.interrupt()
+        playbackThread = null
+
         try {
             audioTrack?.let { track ->
                 try {
@@ -109,16 +140,26 @@ class SilentAudioKeeper {
                 } catch (ignored: Exception) {}
                 track.release()
             }
-            audioTrack = null
-            Log.d(TAG, "SilentAudioKeeper parado")
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao parar SilentAudioKeeper", e)
+            Log.e(TAG, "Erro ao liberar AudioTrack do keep-alive", e)
+        } finally {
+            audioTrack = null
+            if (state != ScoKeepAliveState.FAILED) {
+                state = ScoKeepAliveState.DISABLED
+            }
+            Log.d(TAG, "ExperimentalScoKeepAlive finalizado. Estado: $state")
         }
     }
 
-    fun isActive(): Boolean = isKeepingAlive && audioTrack != null
+    fun isActive(): Boolean = (state == ScoKeepAliveState.ACTIVE) && (audioTrack != null)
 
     companion object {
-        private const val TAG = "SilentAudioKeeper"
+        private const val TAG = "BTMIC_SCO_KEEPALIVE"
     }
 }
+
+/**
+ * Alias de compatibilidade com o nome legado.
+ */
+typealias SilentAudioKeeper = ExperimentalScoKeepAlive
+

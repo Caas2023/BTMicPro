@@ -37,6 +37,7 @@ class BtMicService : Service() {
 
     private lateinit var audioRouter: BluetoothAudioRouter
     private lateinit var notificationManager: NotificationManager
+    private lateinit var dualVolumeManager: com.btmicpro.core.DualVolumeManager
 
     override fun onCreate() {
         super.onCreate()
@@ -45,10 +46,15 @@ class BtMicService : Service() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
 
+        dualVolumeManager = com.btmicpro.core.DualVolumeManager.getInstance(this)
+        dualVolumeManager.startMonitoring()
+
         audioRouter = BluetoothAudioRouter(this, serviceScope)
 
         serviceScope.launch {
             audioRouter.routerState.collect { state ->
+                com.btmicpro.core.RouterStateHolder.updateState(state)
+                com.btmicpro.core.AppLogger.i(TAG, "Notificação de rota atualizada para: ${state.javaClass.simpleName}")
                 updateNotification(state)
             }
         }
@@ -58,7 +64,8 @@ class BtMicService : Service() {
         val action = intent?.action
 
         if (action == ACTION_STOP_SERVICE) {
-            Log.d(TAG, "Ação de parada recebida. Encerrando BtMicService.")
+            com.btmicpro.core.AppLogger.i(TAG, "Ação de parada recebida no serviço. Encerrando BtMicService.")
+            com.btmicpro.core.RouterStateHolder.updateServiceRunning(false)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -80,6 +87,8 @@ class BtMicService : Service() {
             startForeground(NOTIFICATION_ID, initialNotification)
         }
 
+        com.btmicpro.core.AppLogger.i(TAG, "BtMicService em Primeiro Plano iniciado (Foreground Service ativo)")
+        com.btmicpro.core.RouterStateHolder.activeEngine = audioRouter.engine
         audioRouter.startRouting()
         com.btmicpro.core.RouterStateHolder.updateServiceRunning(true)
 
@@ -98,6 +107,24 @@ class BtMicService : Service() {
                 buildNotification(
                     title = "🎧 BT Mic Pro — Rota Pronta",
                     content = "Intercom: ${state.device.name} • Canal verificado"
+                )
+            }
+            is RouterState.AudioConnected -> {
+                buildNotification(
+                    title = "🎧 Canal de Áudio HFP Conectado",
+                    content = "Intercom: ${state.device.name} • Canal ativo no capacete"
+                )
+            }
+            is RouterState.AudioConnecting -> {
+                buildNotification(
+                    title = "🎧 Negociando Canal de Áudio",
+                    content = "Intercom: ${state.device.name} • Estabelecendo áudio HFP"
+                )
+            }
+            is RouterState.RouteDegraded -> {
+                buildNotification(
+                    title = "⚠️ Rota de Áudio Parcial",
+                    content = "Intercom: ${state.device.name} • ${state.reason}"
                 )
             }
             is RouterState.OutputAvailable -> {
@@ -223,8 +250,9 @@ class BtMicService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "Destruindo BtMicService V4 — Limpando rotas e recursos")
+        com.btmicpro.core.AppLogger.i(TAG, "Destruindo BtMicService — Limpando rotas de áudio e recursos do SO")
         audioRouter.stopRouting()
+        dualVolumeManager.stopMonitoring()
         com.btmicpro.core.RouterStateHolder.updateServiceRunning(false)
         com.btmicpro.core.RouterStateHolder.updateState(RouterState.Disconnected)
         serviceScope.cancel()

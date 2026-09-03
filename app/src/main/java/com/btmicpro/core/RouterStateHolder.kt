@@ -17,6 +17,9 @@ object RouterStateHolder {
     private val _isServiceRunning = MutableStateFlow(false)
     val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
 
+    @Volatile
+    var activeEngine: BluetoothRoutingEngine? = null
+
     /**
      * Atualiza o estado atual do roteamento Bluetooth.
      */
@@ -30,6 +33,7 @@ object RouterStateHolder {
     fun updateServiceRunning(isRunning: Boolean) {
         _isServiceRunning.value = isRunning
         if (!isRunning) {
+            activeEngine = null
             _routerState.value = RouterState.Inactive
         }
     }

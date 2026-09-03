@@ -4,7 +4,10 @@
 
 | Categoria | Skill | Uso |
 |-----------|-------|-----|
-| Android | `android_ui_verification` | Testes de UI via ADB no emulador |
+| Áudio & Som | `android-audio-sound-expert` | **Especialista em áudio Android, Bluetooth SCO/LE, DSP Zero-GC e compatibilidade** |
+| Android | `android-dev` | Guia completo de ciclo de vida e engenharia de apps Android nativos |
+| UI/UX | `android-jetpack-compose-expert` | Arquitetura moderna de interface reativa com Jetpack Compose |
+| Testes | `android_ui_verification` | Testes de UI via ADB no emulador |
 | Arquitetura | `architect-review` | Revisão da arquitetura MVVM |
 | Código Limpo | `clean-code` | Padrões de código conciso e pragmático |
 | Testes | `testing-patterns` | Estratégias de testes unitários e integração |

@@ -41,6 +41,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val mediaBooster = MediaBooster(context)
     val liveAudioMonitor = LiveAudioMonitor(context, viewModelScope)
+    val dualVolumeManager = com.btmicpro.core.DualVolumeManager.getInstance(context)
+
+    val mediaVolume: StateFlow<Int> = dualVolumeManager.mediaVolume
+    val callVolume: StateFlow<Int> = dualVolumeManager.callVolume
+    val maxMediaVolume: Int get() = dualVolumeManager.maxMediaVolume
+    val maxCallVolume: Int get() = dualVolumeManager.maxCallVolume
+    val isVolumeSyncEnabled: StateFlow<Boolean> = dualVolumeManager.isSyncEnabled
 
     val routerState: StateFlow<RouterState> = com.btmicpro.core.RouterStateHolder.routerState
     val isLiveMonitorEnabled: StateFlow<Boolean> = liveAudioMonitor.isMonitoring
@@ -51,10 +58,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isRawAudioMode = MutableStateFlow(false)
     val isRawAudioMode: StateFlow<Boolean> = _isRawAudioMode.asStateFlow()
 
-    private val _denoiseIntensity = MutableStateFlow(0.85f)
+    private val _denoiseIntensity = MutableStateFlow(1.0f)
     val denoiseIntensity: StateFlow<Float> = _denoiseIntensity.asStateFlow()
 
-    private val _selectedPreset = MutableStateFlow(RiderAudioPreset.NORMAL)
+    private val _selectedPreset = MutableStateFlow(RiderAudioPreset.EXTREME_WIND)
     val selectedPreset: StateFlow<RiderAudioPreset> = _selectedPreset.asStateFlow()
 
     // Diagnóstico V4 completo e exportável
@@ -72,13 +79,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _whatsappStatus = MutableStateFlow(WhatsAppRouteStatus.UNKNOWN)
     val whatsappStatus: StateFlow<WhatsAppRouteStatus> = _whatsappStatus.asStateFlow()
 
-    private val _isBarModeEnabled = MutableStateFlow(false)
+    private val _isBarModeEnabled = MutableStateFlow(true)
     val isBarModeEnabled: StateFlow<Boolean> = _isBarModeEnabled.asStateFlow()
 
     private val _isFloatingButtonEnabled = MutableStateFlow(false)
     val isFloatingButtonEnabled: StateFlow<Boolean> = _isFloatingButtonEnabled.asStateFlow()
 
-    private val _barBoostLevel = MutableStateFlow(80)
+    private val _barBoostLevel = MutableStateFlow(100)
     val barBoostLevel: StateFlow<Int> = _barBoostLevel.asStateFlow()
 
     private val _autoStartOnBoot = MutableStateFlow(true)
@@ -87,24 +94,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showPromoPopup = MutableStateFlow(false)
     val showPromoPopup: StateFlow<Boolean> = _showPromoPopup.asStateFlow()
 
+    // Volume do Retorno do Capacete (0.0f = Mudo / Zerado por padrão para não ouvir a própria voz)
+    private val _returnVolume = MutableStateFlow(0.0f)
+    val returnVolume: StateFlow<Float> = _returnVolume.asStateFlow()
+
+    // Navegação entre Tela Principal Ultra-Clean e Configurações Avançadas
+    private val _showSettingsScreen = MutableStateFlow(false)
+    val showSettingsScreen: StateFlow<Boolean> = _showSettingsScreen.asStateFlow()
+
     // Instância local para diagnóstico sob demanda quando o serviço não está ativo
     private val localRouter = BluetoothAudioRouter(context, viewModelScope)
 
     init {
         _autoStartOnBoot.value = prefs.getBoolean(BootReceiver.KEY_AUTO_START, true)
-        _denoiseIntensity.value = prefs.getFloat(BootReceiver.KEY_DENOISE_LEVEL, 0.85f)
+        // Por padrão, Melhoramento no MÁXIMO EXTREMO (1.0 = 100%)
+        _denoiseIntensity.value = prefs.getFloat(BootReceiver.KEY_DENOISE_LEVEL, 1.0f)
         _isRawAudioMode.value = prefs.getBoolean("raw_audio_mode", false)
         _silentKeepAliveEnabled.value = prefs.getBoolean("silent_keepalive_enabled", false)
+        // Ouvir o próprio áudio ZERADO por padrão
+        _returnVolume.value = prefs.getFloat("return_volume", 0.0f)
 
-        val savedPresetIndex = prefs.getInt("rider_preset_index", 0)
-        _selectedPreset.value = RiderAudioPreset.values().getOrElse(savedPresetIndex) { RiderAudioPreset.NORMAL }
+        // Preset Vento Extremo por padrão
+        val savedPresetIndex = prefs.getInt("rider_preset_index", RiderAudioPreset.EXTREME_WIND.ordinal)
+        _selectedPreset.value = RiderAudioPreset.values().getOrElse(savedPresetIndex) { RiderAudioPreset.EXTREME_WIND }
 
-        _isBarModeEnabled.value = prefs.getBoolean("bar_mode_enabled", false)
+        _isBarModeEnabled.value = prefs.getBoolean("bar_mode_enabled", true)
         _isFloatingButtonEnabled.value = prefs.getBoolean("floating_button_enabled", false)
         if (_isFloatingButtonEnabled.value && FloatingButtonService.isOverlayGranted(context)) {
             FloatingButtonService.start(context)
         }
-        _barBoostLevel.value = prefs.getInt("bar_boost_level", 80)
+        _barBoostLevel.value = prefs.getInt("bar_boost_level", 100)
         if (_isBarModeEnabled.value) {
             mediaBooster.enableBarMode(_barBoostLevel.value)
         }
@@ -118,6 +137,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 prefs.edit().putBoolean(BootReceiver.KEY_ROUTER_ENABLED, isRunning).apply()
                 if (isRunning) {
                     _whatsappStatus.value = WhatsAppRouteStatus.ROUTE_PREPARED
+                } else {
+                    liveAudioMonitor.stopMonitoring()
                 }
             }
         }
@@ -134,7 +155,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putInt("rider_preset_index", preset.ordinal).apply()
         if (liveAudioMonitor.isMonitoring.value) {
             liveAudioMonitor.stopMonitoring()
-            liveAudioMonitor.startMonitoring(_denoiseIntensity.value, _isRawAudioMode.value, preset = preset)
+            liveAudioMonitor.startMonitoring(
+                denoiseIntensity = _denoiseIntensity.value,
+                bypassDsp = _isRawAudioMode.value,
+                initialVolume = _returnVolume.value,
+                preset = preset
+            )
         }
     }
 
@@ -148,6 +174,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _whatsappStatus.value = WhatsAppRouteStatus.USER_VALIDATED
     }
 
+    fun openSettings() {
+        refreshDiagnostics()
+        _showSettingsScreen.value = true
+    }
+
+    fun closeSettings() {
+        _showSettingsScreen.value = false
+    }
+
+    fun setReturnVolume(volume: Float) {
+        val clamped = volume.coerceIn(0.0f, 1.0f)
+        _returnVolume.value = clamped
+        prefs.edit().putFloat("return_volume", clamped).apply()
+        liveAudioMonitor.setReturnVolume(clamped)
+    }
+
     fun openDiagnostics() {
         refreshDiagnostics()
         _showDiagnosticsDialog.value = true
@@ -158,8 +200,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshDiagnostics() {
-        localRouter.silentAudioKeepAliveEnabled = _silentKeepAliveEnabled.value
-        _diagnostics.value = localRouter.getDiagnosticsData()
+        val activeEngine = com.btmicpro.core.RouterStateHolder.activeEngine
+        _diagnostics.value = if (activeEngine != null) {
+            activeEngine.getFullDiagnostics()
+        } else {
+            localRouter.silentAudioKeepAliveEnabled = _silentKeepAliveEnabled.value
+            localRouter.getDiagnosticsData()
+        }
     }
 
     fun exportDiagnosticsText(): String {
@@ -170,6 +217,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun exportDiagnosticsJson(): String {
         refreshDiagnostics()
         return _diagnostics.value?.exportAsJson() ?: "{}"
+    }
+
+    val logsList: StateFlow<List<String>> = com.btmicpro.core.AppLogger.logsState
+
+    fun copyAllLogs(context: Context) {
+        val text = com.btmicpro.core.AppLogger.getAllLogsText()
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("BT Mic Pro Flight Recorder", text)
+        clipboard.setPrimaryClip(clip)
+        com.btmicpro.core.AppLogger.i("MainViewModel", "Todos os logs foram copiados para a área de transferência (${text.lines().size} linhas).")
+    }
+
+    fun shareLogs(context: Context) {
+        val text = com.btmicpro.core.AppLogger.getAllLogsText()
+        val sendIntent = android.content.Intent().apply {
+            action = android.content.Intent.ACTION_SEND
+            putExtra(android.content.Intent.EXTRA_TEXT, text)
+            type = "text/plain"
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val chooser = android.content.Intent.createChooser(sendIntent, "Compartilhar Logs BT Mic Pro")
+        chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+    }
+
+    fun clearLogs() {
+        com.btmicpro.core.AppLogger.clearLogs()
     }
 
     private fun checkPromoPopup() {
@@ -240,7 +314,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleRouter(enabled: Boolean) {
         _isRouterEnabled.value = enabled
         prefs.edit().putBoolean(BootReceiver.KEY_ROUTER_ENABLED, enabled).apply()
+        com.btmicpro.core.RouterStateHolder.updateServiceRunning(enabled)
         if (enabled) {
+            val userCustomized = prefs.getBoolean("user_customized_volumes", false)
+            if (!userCustomized) {
+                dualVolumeManager.maximizeVolumes(showUi = false)
+            }
             com.btmicpro.core.RouterStateHolder.updateState(RouterState.WaitingDevice)
             startRouterService()
         } else {
@@ -254,7 +333,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("raw_audio_mode", enabled).apply()
         if (liveAudioMonitor.isMonitoring.value) {
             liveAudioMonitor.stopMonitoring()
-            liveAudioMonitor.startMonitoring(_denoiseIntensity.value, enabled, preset = _selectedPreset.value)
+            liveAudioMonitor.startMonitoring(
+                denoiseIntensity = _denoiseIntensity.value,
+                bypassDsp = enabled,
+                initialVolume = _returnVolume.value,
+                preset = _selectedPreset.value
+            )
         }
     }
 
@@ -263,6 +347,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             liveAudioMonitor.startMonitoring(
                 denoiseIntensity = _denoiseIntensity.value,
                 bypassDsp = _isRawAudioMode.value,
+                initialVolume = _returnVolume.value,
                 preset = _selectedPreset.value
             )
         } else {
@@ -304,6 +389,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setAutoStartOnBoot(enabled: Boolean) {
         _autoStartOnBoot.value = enabled
         prefs.edit().putBoolean(BootReceiver.KEY_AUTO_START, enabled).apply()
+    }
+
+    fun setMediaVolume(level: Int) {
+        dualVolumeManager.setMediaVolume(level, showUi = true)
+    }
+
+    fun setCallVolume(level: Int) {
+        dualVolumeManager.setCallVolume(level, showUi = true)
+    }
+
+    fun stepMediaVolume(up: Boolean) {
+        dualVolumeManager.stepMedia(up)
+    }
+
+    fun stepCallVolume(up: Boolean) {
+        dualVolumeManager.stepCall(up)
+    }
+
+    fun setVolumeSyncEnabled(enabled: Boolean) {
+        dualVolumeManager.setSyncEnabled(enabled)
     }
 
     override fun onCleared() {

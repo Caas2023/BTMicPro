@@ -55,10 +55,7 @@ class MediaBooster(private val context: Context) {
         try {
             audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             
-            // 1. Volume de mídia no máximo (hardware)
-            maximizeMediaVolume()
-            
-            // 2. LoudnessEnhancer - compressor que aumenta voz até +15dB
+            // 1. LoudnessEnhancer - compressor que aumenta voz até +15dB
             enableLoudnessEnhancer(boostLevel)
             
             // 3. Equalizer - empurra voz 1-3kHz
@@ -128,19 +125,8 @@ class MediaBooster(private val context: Context) {
         }
     }
 
-    private fun maximizeMediaVolume() {
-        try {
-            val am = audioManager ?: context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val maxMusic = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, maxMusic, 0)
-            // Também garante STREAM_VOICE_CALL no max para quando SCO está ativo
-            val maxVoice = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
-            am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxVoice, 0)
-            Log.d(TAG, "Volume mídia/voz maximizado: music=$maxMusic voice=$maxVoice")
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao maximizar volume", e)
-        }
-    }
+    // Nota (Item 76 do Prompt Master): Jamais invocar setStreamVolume globalmente
+    // para tentar controlar ganho de áudio, pois volume de saída não é ganho de entrada.
 
     private fun enableLoudnessEnhancer(boostLevel: Int) {
         try {

@@ -3,15 +3,14 @@ package com.btmicpro.core
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 /**
- * BluetoothAudioRouter — Fachada unificada que expõe a autoridade central do BluetoothRoutingEngine V4.
- *
- * Garante que não haja guerras de concorrência ou duplicação de chamadas ao AudioManager.
+ * BluetoothAudioRouter — Fachada unificada que expõe a autoridade central do BluetoothRoutingEngine V5.
  */
 class BluetoothAudioRouter(
     context: Context,
-    coroutineScope: CoroutineScope
+    private val coroutineScope: CoroutineScope
 ) {
     val engine = BluetoothRoutingEngine(context, coroutineScope)
 
@@ -20,8 +19,8 @@ class BluetoothAudioRouter(
     val whatsappStatus: StateFlow<WhatsAppRouteStatus> = engine.whatsappStatus
 
     var silentAudioKeepAliveEnabled: Boolean
-        get() = engine.silentAudioKeepAliveEnabled
-        set(value) { engine.silentAudioKeepAliveEnabled = value }
+        get() = engine.useExperimentalKeepAlive
+        set(value) { engine.useExperimentalKeepAlive = value }
 
     fun startRouting() {
         engine.startEngine()
@@ -32,7 +31,9 @@ class BluetoothAudioRouter(
     }
 
     fun evaluateAndRouteBluetoothDevice() {
-        engine.evaluateAndApplyRoute()
+        coroutineScope.launch {
+            engine.evaluateAndApplyRoute()
+        }
     }
 
     fun getConnectedBluetoothName(): String? {
@@ -47,3 +48,4 @@ class BluetoothAudioRouter(
         return engine.getFullDiagnostics()
     }
 }
+

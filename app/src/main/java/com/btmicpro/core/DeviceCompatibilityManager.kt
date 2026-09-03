@@ -4,23 +4,55 @@ import android.os.Build
 import android.util.Log
 
 /**
- * Perfil de compatibilidade de hardware para dispositivos Android.
+ * Interface/Classe base de perfil de dispositivo com parâmetros observáveis e configuráveis
+ * (Itens 11 e 46 do Prompt Master).
  */
 data class DeviceProfile(
+    val profileName: String,
     val isCubotKingKongXPro: Boolean,
-    val preferredSampleRate: Int,
-    val preferredScoBufferMultiplier: Int,
-    val supportsMediaTekDuraSpeed: Boolean,
-    val recommendedHighPassCutoff: Float,
-    val profileName: String
+    val preferredSampleRate: Int = 16000,
+    val preferredBufferSize: Int = 2,
+    val useLegacyScoFallback: Boolean = false,
+    val scoConnectionTimeout: Long = 10000L,
+    val routingRetryDelay: Long = 500L,
+    val supportsMediaTekDuraSpeed: Boolean = false
 )
 
 /**
+ * Perfil dedicado para o Cubot KingKong X Pro (MediaTek Dimensity 8200, Android 14/15).
+ * Contém apenas parâmetros observáveis e configuráveis, sem alegações infundadas sobre codecs nativos.
+ */
+object CubotKingKongXProProfile {
+    fun create(): DeviceProfile = DeviceProfile(
+        profileName = "Cubot KingKong X Pro (MediaTek Dimensity 8200)",
+        isCubotKingKongXPro = true,
+        preferredSampleRate = 16000,
+        preferredBufferSize = 2,
+        useLegacyScoFallback = false,
+        scoConnectionTimeout = 10000L,
+        routingRetryDelay = 500L,
+        supportsMediaTekDuraSpeed = true
+    )
+}
+
+/**
+ * Perfil genérico universal para outros aparelhos Android.
+ */
+object GenericDeviceProfile {
+    fun create(): DeviceProfile = DeviceProfile(
+        profileName = "Perfil Universal Android (${Build.MANUFACTURER} ${Build.MODEL})",
+        isCubotKingKongXPro = false,
+        preferredSampleRate = 16000,
+        preferredBufferSize = 1,
+        useLegacyScoFallback = false,
+        scoConnectionTimeout = 10000L,
+        routingRetryDelay = 600L,
+        supportsMediaTekDuraSpeed = false
+    )
+}
+
+/**
  * DeviceCompatibilityManager — Camada de abstração e isolamento de particularidades de hardware.
- * 
- * Especializado para o Cubot KingKong X Pro (MediaTek Dimensity 8200, Android 14 API 34),
- * garantindo taxa ótima de amostragem mSBC (16.000 Hz), buffers anti-underrun para o driver MediaTek
- * e diretrizes de imunidade ao DuraSpeed/Battery Optimization.
  */
 object DeviceCompatibilityManager {
 
@@ -36,30 +68,16 @@ object DeviceCompatibilityManager {
         val hardware = Build.HARDWARE.orEmpty().lowercase()
 
         val isCubot = manufacturer.contains("cubot") || model.contains("kingkong") || model.contains("x pro")
-        val isMediaTek = hardware.contains("mt") || hardware.contains("dimensity") || Build.SOC_MODEL.orEmpty().lowercase().contains("dimensity")
+        val isMediaTek = hardware.contains("mt") || hardware.contains("dimensity") || (Build.VERSION.SDK_INT >= 31 && Build.SOC_MODEL.orEmpty().lowercase().contains("dimensity"))
 
         Log.d(TAG, "Detectando hardware: Manufacturer=$manufacturer Model=$model Hardware=$hardware isCubot=$isCubot isMediaTek=$isMediaTek")
 
         return if (isCubot) {
-            Log.i(TAG, "Perfil de hardware ativado: Cubot KingKong X Pro (MediaTek Dimensity 8200)")
-            DeviceProfile(
-                isCubotKingKongXPro = true,
-                preferredSampleRate = 16000, // Nativo mSBC no driver MediaTek SCO
-                preferredScoBufferMultiplier = 2, // Previne buffer underruns no chipset Dimensity
-                supportsMediaTekDuraSpeed = true,
-                recommendedHighPassCutoff = 120.0f, // Ponto de corte ideal para microfones de capacete
-                profileName = "Cubot KingKong X Pro (MediaTek Dimensity 8200)"
-            )
+            Log.i(TAG, "Perfil de hardware ativado: CubotKingKongXProProfile")
+            CubotKingKongXProProfile.create()
         } else {
-            Log.i(TAG, "Perfil de hardware ativado: Android Genérico")
-            DeviceProfile(
-                isCubotKingKongXPro = false,
-                preferredSampleRate = 16000,
-                preferredScoBufferMultiplier = 1,
-                supportsMediaTekDuraSpeed = false,
-                recommendedHighPassCutoff = 120.0f,
-                profileName = "Perfil Genérico Android (${Build.MANUFACTURER} ${Build.MODEL})"
-            )
+            Log.i(TAG, "Perfil de hardware ativado: GenericDeviceProfile")
+            GenericDeviceProfile.create()
         }
     }
 }

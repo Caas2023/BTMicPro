@@ -12,6 +12,7 @@ local.properties
 *.apk
 *.aab
 *.ap_
+APK/
 
 # Dependências e cache
 .gradle/
@@ -21,7 +22,9 @@ local.properties
 Thumbs.db
 
 # Cache de IA e agentes
-.agents/
+.agents/*
+!.agents/rules/
+!.agents/skills/
 .gemini/
 .opencode/
 graphify-out/

@@ -41,49 +41,38 @@ class LiveAudioMonitor(
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     private val cleanVoiceDsp = CleanVoiceDsp(16000)
+    private val audioEffectController = AudioEffectController()
 
-    @SuppressLint("MissingPermission")
-    fun startMonitoring(
-        denoiseIntensity: Float = 0.85f,
-        bypassDsp: Boolean = false,
-        volumeMultiplier: Float = 1.0f,
-        preset: RiderAudioPreset = RiderAudioPreset.NORMAL
-    ) {
-        if (_isMonitoring.value) return
-        cleanVoiceDsp.setPreset(preset)
+    @Volatile
+    private var returnVolume: Float = 0.0f
 
-        val sampleRate = 16000
-        val channelConfigIn = AudioFormat.CHANNEL_IN_MONO
-        val channelConfigOut = AudioFormat.CHANNEL_OUT_MONO
-        val audioEncoding = AudioFormat.ENCODING_PCM_16BIT
+    @Synchronized
+    fun setReturnVolume(volume: Float) {
+        returnVolume = volume.coerceIn(0.0f, 1.0f)
+        if (returnVolume > 0.0f) {
+            if (_isMonitoring.value && audioTrack == null) {
+                initAudioTrack()
+            }
+            try {
+                audioTrack?.setVolume(returnVolume)
+            } catch (ignored: Exception) {}
+        } else {
+            // Volume 0% = Mudo total: Libera o AudioTrack para NUNCA ocupar a saída de áudio dos fones
+            releaseAudioTrack()
+        }
+    }
 
-        val minBufIn = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioEncoding)
-        val minBufOut = AudioTrack.getMinBufferSize(sampleRate, channelConfigOut, audioEncoding)
-        // Frame pequeno (320 amostras = 20ms a 16kHz) para latência mínima perceptível
-        val frameSize = 320
-        val bufferSize = max(frameSize * 2, max(minBufIn, minBufOut))
+    fun getReturnVolume(): Float = returnVolume
 
+    @Synchronized
+    private fun initAudioTrack() {
+        if (audioTrack != null) return
         try {
-            val audioSource = if (bypassDsp) {
-                MediaRecorder.AudioSource.UNPROCESSED
-            } else {
-                MediaRecorder.AudioSource.VOICE_RECOGNITION
-            }
-
-            audioRecord = AudioRecord(audioSource, sampleRate, channelConfigIn, audioEncoding, bufferSize)
-
-            // Conecta ao fone Bluetooth se disponível
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-                val btInput = inputs.find {
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-                }
-                if (btInput != null) {
-                    audioRecord?.preferredDevice = btInput
-                    Log.d(TAG, "LiveMonitor: Gravando via preferredDevice: ${btInput.productName}")
-                }
-            }
+            val sampleRate = 16000
+            val channelConfigOut = AudioFormat.CHANNEL_OUT_MONO
+            val audioEncoding = AudioFormat.ENCODING_PCM_16BIT
+            val minBufOut = AudioTrack.getMinBufferSize(sampleRate, channelConfigOut, audioEncoding)
+            val bufferSize = max(320 * 2, minBufOut)
 
             val attributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -108,44 +97,182 @@ class LiveAudioMonitor(
                 }
                 .build()
 
+            audioTrack?.setVolume(returnVolume)
+            audioTrack?.play()
+            AppLogger.d(TAG, "AudioTrack de retorno iniciado sob demanda (Volume: ${(returnVolume * 100).toInt()}%)")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Falha ao inicializar AudioTrack de retorno", e)
+        }
+    }
+
+    @Synchronized
+    private fun releaseAudioTrack() {
+        try {
+            audioTrack?.let { track ->
+                if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    track.stop()
+                }
+                track.release()
+            }
+        } catch (ignored: Exception) {}
+        audioTrack = null
+        AppLogger.d(TAG, "AudioTrack de retorno liberado (Fones 100% livres para WhatsApp/chamadas)")
+    }
+
+    @SuppressLint("MissingPermission")
+    fun startMonitoring(
+        denoiseIntensity: Float = 0.85f,
+        bypassDsp: Boolean = false,
+        initialVolume: Float = 0.0f,
+        preset: RiderAudioPreset = RiderAudioPreset.NORMAL
+    ) {
+        if (_isMonitoring.value) return
+        returnVolume = initialVolume.coerceIn(0.0f, 1.0f)
+        cleanVoiceDsp.setPreset(preset)
+
+        val sampleRate = 16000
+        val channelConfigIn = AudioFormat.CHANNEL_IN_MONO
+        val audioEncoding = AudioFormat.ENCODING_PCM_16BIT
+
+        val minBufIn = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioEncoding)
+        val frameSize = 320
+        val bufferSize = max(frameSize * 2, minBufIn)
+
+        try {
+            val audioSource = if (bypassDsp) {
+                MediaRecorder.AudioSource.UNPROCESSED
+            } else {
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION
+            }
+
+            audioRecord = AudioRecord(audioSource, sampleRate, channelConfigIn, audioEncoding, bufferSize)
+
+            // Ativa os efeitos de tratamento nativos de hardware do celular (NoiseSuppressor, AGC, AEC)
+            val sessionId = audioRecord?.audioSessionId ?: 0
+            if (sessionId != 0) {
+                audioEffectController.attachToSession(sessionId)
+            }
+
+            // Conecta ao microfone Bluetooth se disponível
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+                val btInput = inputs.find {
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+                }
+                if (btInput != null) {
+                    audioRecord?.preferredDevice = btInput
+                    Log.d(TAG, "LiveMonitor: Gravando via preferredDevice: ${btInput.productName}")
+                }
+            }
+
             cleanVoiceDsp.configureFilters(sampleRate)
 
+            // Se o volume de retorno estiver ativo (>0%), inicia o AudioTrack.
+            // Se estiver em 0% (Mudo), NÃO cria nem inicia o AudioTrack, deixando a saída 100% livre para o WhatsApp!
+            if (returnVolume > 0.0f) {
+                initAudioTrack()
+            } else {
+                releaseAudioTrack()
+            }
+
             audioRecord?.startRecording()
-            audioTrack?.play()
             _isMonitoring.value = true
-            Log.d(TAG, "LiveAudioMonitor iniciado com sucesso a ${sampleRate}Hz")
+            AppLogger.i(TAG, "LiveAudioMonitor iniciado com sucesso a ${sampleRate}Hz (Retorno: ${(returnVolume * 100).toInt()}%, Preset: ${preset.name}, Denoise: ${denoiseIntensity})")
 
             monitorJob = coroutineScope.launch(Dispatchers.IO) {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
                 val pcmBuffer = ShortArray(frameSize)
+                var frameCount = 0
+                var windowPeak = 0
+                var windowSumSquares = 0.0
+                var windowSamples = 0
+                var windowClipping = 0
+                var consecutiveSilenceFrames = 0
+                var lastLogTime = System.currentTimeMillis()
 
                 try {
                     while (isActive && _isMonitoring.value) {
                         val readSamples = audioRecord?.read(pcmBuffer, 0, frameSize) ?: 0
                         if (readSamples > 0) {
+                            // Medição acústica bruta pré-DSP (Item 10)
+                            for (i in 0 until readSamples) {
+                                val s = pcmBuffer[i].toInt()
+                                val absVal = if (s < 0) -s else s
+                                if (absVal > windowPeak) windowPeak = absVal
+                                if (absVal >= 32700) windowClipping++
+                                windowSumSquares += (s.toDouble() * s.toDouble())
+                            }
+                            windowSamples += readSamples
+                            frameCount++
+
                             // Aplica o CleanVoice DSP
                             cleanVoiceDsp.process(pcmBuffer, readSamples, denoiseIntensity, bypassDsp)
 
-                            // Aplica o multiplicador de ganho de escuta
-                            if (volumeMultiplier != 1.0f) {
-                                for (i in 0 until readSamples) {
-                                    val amplified = (pcmBuffer[i] * volumeMultiplier)
-                                    pcmBuffer[i] = amplified.coerceIn(-32768f, 32767f).toInt().toShort()
+                            // Se o volume de retorno no capacete estiver ativo (> 0%), reproduz no AudioTrack
+                            val currentVol = returnVolume
+                            if (currentVol > 0.0f) {
+                                if (currentVol != 1.0f) {
+                                    for (i in 0 until readSamples) {
+                                        val amplified = (pcmBuffer[i] * currentVol)
+                                        pcmBuffer[i] = amplified.coerceIn(-32768f, 32767f).toInt().toShort()
+                                    }
                                 }
+                                audioTrack?.write(pcmBuffer, 0, readSamples)
                             }
 
-                            // Escreve direto no AudioTrack de baixa latência
-                            audioTrack?.write(pcmBuffer, 0, readSamples)
+                            // Telemetria periódica a cada 2 segundos (~100 frames)
+                            val now = System.currentTimeMillis()
+                            if (now - lastLogTime >= 2000L && windowSamples > 0) {
+                                val meanSquare = windowSumSquares / windowSamples
+                                val rms = kotlin.math.sqrt(meanSquare)
+                                val rmsDb = if (rms > 0.0) 20.0 * kotlin.math.log10(rms / 32768.0) else -96.0
+                                val peakDb = if (windowPeak > 0) 20.0 * kotlin.math.log10(windowPeak / 32768.0) else -96.0
+
+                                val status = when {
+                                    windowClipping > 0 -> "⚠️ CLIPPING (Saturando microfone)"
+                                    rmsDb < -55.0 -> "ℹ️ SILÊNCIO (Sem voz detectada)"
+                                    rmsDb in -35.0..-12.0 -> "✅ VOZ CLARA (Nível ideal)"
+                                    else -> "OK (Captando sinal)"
+                                }
+
+                                AppLogger.audio(
+                                    TAG,
+                                    "🎤 Áudio Captado: RMS=${"%.1f".format(rmsDb)} dBFS | Pico=${"%.1f".format(peakDb)} dBFS | Clipes=$windowClipping | $status"
+                                )
+
+                                if (windowClipping > 5) {
+                                    AppLogger.w(TAG, "⚠️ ALERTA DE CORTE/DISTORÇÃO: $windowClipping amostras saturadas detectadas no microfone do capacete!")
+                                }
+
+                                if (rmsDb < -60.0) {
+                                    consecutiveSilenceFrames++
+                                    if (consecutiveSilenceFrames >= 2) {
+                                        AppLogger.w(TAG, "⚠️ ALERTA DE MICROFONE MUDO: Sinal extremamente baixo ou microfone não respondendo.")
+                                    }
+                                } else {
+                                    consecutiveSilenceFrames = 0
+                                }
+
+                                // Reinicia acumuladores de janela
+                                windowPeak = 0
+                                windowSumSquares = 0.0
+                                windowSamples = 0
+                                windowClipping = 0
+                                lastLogTime = now
+                            }
+                        } else if (readSamples < 0) {
+                            AppLogger.e(TAG, "ERRO DE CAPTURA: AudioRecord.read retornou código de erro $readSamples")
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Erro no loop do LiveAudioMonitor", e)
+                    AppLogger.e(TAG, "Erro no loop de áudio do LiveAudioMonitor", e)
                 } finally {
                     stopMonitoring()
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Falha ao iniciar LiveAudioMonitor", e)
+            AppLogger.e(TAG, "Falha ao inicializar AudioRecord/AudioTrack no LiveAudioMonitor", e)
             stopMonitoring()
         }
     }
@@ -168,7 +295,11 @@ class LiveAudioMonitor(
             audioTrack = null
         } catch (ignored: Exception) {}
 
-        Log.d(TAG, "LiveAudioMonitor interrompido")
+        try {
+            audioEffectController.release()
+        } catch (ignored: Exception) {}
+
+        AppLogger.i(TAG, "LiveAudioMonitor interrompido.")
     }
 
     companion object {

@@ -33,12 +33,15 @@ class AudioEffectController {
                 noiseSuppressor = NoiseSuppressor.create(audioSessionId)?.apply {
                     enabled = true
                     Log.d(TAG, "NoiseSuppressor ativado com sucesso para a sessão $audioSessionId.")
+                    AppLogger.i(TAG, "🛡️ Hardware DSP: NoiseSuppressor (Redutor de Ruído/Vento) ATIVADO!")
                 }
             } else {
                 Log.i(TAG, "NoiseSuppressor nativo não suportado pelo hardware deste dispositivo.")
+                AppLogger.d(TAG, "Hardware DSP: NoiseSuppressor nativo não disponível neste chipset.")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao inicializar NoiseSuppressor", e)
+            AppLogger.e(TAG, "Falha ao ativar NoiseSuppressor de hardware", e)
         }
 
         // 2. Controle Automático de Ganho (AutomaticGainControl)
@@ -47,6 +50,7 @@ class AudioEffectController {
                 automaticGainControl = AutomaticGainControl.create(audioSessionId)?.apply {
                     enabled = true
                     Log.d(TAG, "AutomaticGainControl ativado com sucesso para a sessão $audioSessionId.")
+                    AppLogger.i(TAG, "🎚️ Hardware DSP: AGC (Nivelador de Ganho Vocal) ATIVADO!")
                 }
             } else {
                 Log.i(TAG, "AutomaticGainControl nativo não suportado pelo hardware deste dispositivo.")
@@ -61,6 +65,7 @@ class AudioEffectController {
                 acousticEchoCanceler = AcousticEchoCanceler.create(audioSessionId)?.apply {
                     enabled = true
                     Log.d(TAG, "AcousticEchoCanceler ativado com sucesso para a sessão $audioSessionId.")
+                    AppLogger.i(TAG, "🔇 Hardware DSP: AcousticEchoCanceler (Anti-Eco/Vazamento) ATIVADO!")
                 }
             } else {
                 Log.i(TAG, "AcousticEchoCanceler nativo não suportado pelo hardware deste dispositivo.")

@@ -1,8 +1,8 @@
 package com.btmicpro.core
 
 /**
- * Modelo canônico de Diagnóstico de Áudio V4 do BT Mic Pro.
- * Contém informações completas de telemetria do sistema de áudio para validação de rota e compatibilidade.
+ * Modelo canônico de Diagnóstico de Áudio V5 do BT Mic Pro.
+ * Contém telemetria real, contadores de quedas e tempos cronometrados (sem valores fictícios).
  */
 data class AudioDiagnostics(
     val manufacturer: String,
@@ -11,87 +11,125 @@ data class AudioDiagnostics(
     val sdk: Int,
     val build: String,
 
+    // Bluetooth & HFP
     val bluetoothDevice: String,
     val bluetoothProfile: String,
+    val hfpAudioState: String,
+    val scoCodec: String = "NOT_EXPOSED",
 
+    // Rota de Comunicação
     val communicationDevice: String,
-
-    val inputDevices: List<String>,
-    val outputDevices: List<String>,
-
     val audioMode: String,
-
-    val scoState: String,
-    val scoCodec: String,
-
     val routeState: String,
-
     val inputAvailable: Boolean,
     val outputAvailable: Boolean,
+    val isBidirectionalReady: Boolean,
 
-    val silentAudioKeeper: Boolean,
+    // Métricas de Tempo e Latência (Item 12 do Prompt Master)
+    val routePreparationTimeMs: Long = 0L,
+    val audioBufferEstimateMs: Long = 0L,
+    val processingTimeMs: Long = 0L,
+    val endToEndLatency: String = "NOT_MEASURED",
 
-    val audioFocusState: String,
+    // Contadores de Quedas e Estabilidade (Item 58 do Prompt Master)
+    val routeLossCount: Int = 0,
+    val recoveryCount: Int = 0,
+    val scoDisconnectCount: Int = 0,
+    val communicationDeviceChangeCount: Int = 0,
+    val lastRecoveryDurationMs: Long = 0L,
 
-    val whatsappStatus: WhatsAppRouteStatus,
+    // Keep-alive experimental
+    val scoKeepAliveState: String = "DISABLED",
+    val audioFocusState: String = "LIVRE",
 
-    val estimatedLatency: String = "NOT MEASURED",
+    // WhatsApp Status (Item 9)
+    val whatsappStatus: WhatsAppRouteStatus = WhatsAppRouteStatus.UNKNOWN,
+
+    // Listas de dispositivos
+    val inputDevices: List<String> = emptyList(),
+    val outputDevices: List<String> = emptyList(),
+    val recentEvents: List<RouteEvent> = emptyList(),
+
     val hardwareProfileName: String = "Universal"
 ) {
 
     /**
-     * Exporta o diagnóstico completo em formato texto claro (.txt), sem expor áudios ou dados pessoais.
+     * Exporta o diagnóstico completo em formato texto claro (.txt) para o usuário ou auditoria.
      */
     fun exportAsText(): String {
         return buildString {
-            appendLine("=== BT MIC PRO — RELATÓRIO DE DIAGNÓSTICO DE ÁUDIO ===")
+            appendLine("=== BT MIC PRO V5 — RELATÓRIO DE TELEMETRIA E ROTA ===")
             appendLine("GERADO EM: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
             appendLine("--------------------------------------------------")
-            appendLine("[DISPOSITIVO]")
+            appendLine("[DISPOSITIVO & HARDWARE]")
             appendLine("Fabricante: $manufacturer")
             appendLine("Modelo: $model")
             appendLine("Android: $androidVersion (SDK $sdk)")
             appendLine("Build: $build")
-            appendLine("Perfil de Hardware: $hardwareProfileName")
+            appendLine("Perfil de Compatibilidade: $hardwareProfileName")
             appendLine()
-            appendLine("[BLUETOOTH & INTERCOM]")
-            appendLine("Dispositivo Conectado: $bluetoothDevice")
-            appendLine("Perfil Bluetooth: $bluetoothProfile")
-            appendLine("SCO State: $scoState")
-            appendLine("Codec SCO: $scoCodec")
+            appendLine("[BLUETOOTH & HFP/SCO]")
+            appendLine("Dispositivo Físico: $bluetoothDevice")
+            appendLine("Perfil Conectado: $bluetoothProfile")
+            appendLine("Estado de Áudio HFP: $hfpAudioState")
+            appendLine("Codec Reportado: $scoCodec (Nunca inferido por taxa)")
             appendLine()
-            appendLine("[ROTA DE COMUNICAÇÃO]")
+            appendLine("[ROTA DE COMUNICAÇÃO ANDROID]")
             appendLine("Communication Device: $communicationDevice")
-            appendLine("Modo de Áudio: $audioMode")
-            appendLine("Estado da Rota: $routeState")
-            appendLine("Entrada Bluetooth Disponível: ${if (inputAvailable) "SIM" else "NÃO"}")
-            appendLine("Saída Bluetooth Disponível: ${if (outputAvailable) "SIM" else "NÃO"}")
-            appendLine("SilentAudioKeeper (Experimental): ${if (silentAudioKeeper) "ATIVO" else "DESATIVADO"}")
+            appendLine("Modo de Áudio SO: $audioMode")
+            appendLine("Estado Central: $routeState")
+            appendLine("Microfone Fone (Input): ${if (inputAvailable) "DISPONÍVEL" else "NÃO DISPONÍVEL"}")
+            appendLine("Alto-falante Fone (Output): ${if (outputAvailable) "DISPONÍVEL" else "NÃO DISPONÍVEL"}")
+            appendLine("Bidirecionalidade: ${if (isBidirectionalReady) "CONFIRMADA" else "AGUARDANDO"}")
             appendLine("Audio Focus: $audioFocusState")
-            appendLine("Latência de Rota Estimada: $estimatedLatency")
+            appendLine("Keep-Alive Experimental: $scoKeepAliveState")
             appendLine()
-            appendLine("[STATUS WHATSAPP]")
-            appendLine("Status: ${whatsappStatus.label}")
+            appendLine("[LATÊNCIA & TEMPOS (SEM VALORES FICTÍCIOS)]")
+            appendLine("Tempo de Preparação da Rota: ${routePreparationTimeMs}ms")
+            appendLine("Estimativa de Buffer de Áudio: ${audioBufferEstimateMs}ms")
+            appendLine("Tempo de Processamento Interno: ${processingTimeMs}ms")
+            appendLine("Latência Ponta-a-Ponta: $endToEndLatency")
             appendLine()
-            appendLine("[DISPOSITIVOS DE ENTRADA (MIC)]")
+            appendLine("[CONTADORES DE ESTABILIDADE & QUEDAS]")
+            appendLine("Quedas de Rota (routeLossCount): $routeLossCount")
+            appendLine("Recuperações Executadas (recoveryCount): $recoveryCount")
+            appendLine("Desconexões de SCO (scoDisconnectCount): $scoDisconnectCount")
+            appendLine("Trocas de Communication Device: $communicationDeviceChangeCount")
+            appendLine("Duração da Última Recuperação: ${lastRecoveryDurationMs}ms")
+            appendLine()
+            appendLine("[STATUS WHATSAPP (SEPARADO E REAL)]")
+            appendLine("Status: ${whatsappStatus.name} (${whatsappStatus.label})")
+            appendLine()
+            appendLine("[ENTRADAS DETECTADAS (INPUTS)]")
             if (inputDevices.isEmpty()) appendLine("  (Nenhum dispositivo)")
             else inputDevices.forEach { appendLine("  • $it") }
             appendLine()
-            appendLine("[DISPOSITIVOS DE SAÍDA (FONE/SPEAKER)]")
+            appendLine("[SAÍDAS DETECTADAS (OUTPUTS)]")
             if (outputDevices.isEmpty()) appendLine("  (Nenhum dispositivo)")
             else outputDevices.forEach { appendLine("  • $it") }
+            appendLine()
+            appendLine("[HISTÓRICO RECENTE DE EVENTOS (ÚLTIMOS ${recentEvents.size})]")
+            if (recentEvents.isEmpty()) appendLine("  (Nenhum evento registrado)")
+            else {
+                recentEvents.takeLast(15).forEach { ev ->
+                    val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(ev.timestamp))
+                    appendLine("  [$time] ${ev.event} | ${ev.previousState} -> ${ev.newState}${ev.reason?.let { " ($it)" } ?: ""}")
+                }
+            }
             appendLine("==================================================")
         }
     }
 
     /**
-     * Exporta o relatório completo em formato JSON para fácil envio e auditoria programática.
-     * Gera JSON canônico puro sem depender de android.jar em tempo de teste.
+     * Exporta a telemetria em formato JSON puro sem dependências externas.
      */
     fun exportAsJson(): String {
         fun escape(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
         val inputsJson = inputDevices.joinToString(separator = ", ") { "\"${escape(it)}\"" }
         val outputsJson = outputDevices.joinToString(separator = ", ") { "\"${escape(it)}\"" }
+        val eventsJson = recentEvents.takeLast(20).joinToString(separator = ",\n") { ev ->
+            """    { "timestamp": ${ev.timestamp}, "event": "${escape(ev.event)}", "previous": "${escape(ev.previousState)}", "new": "${escape(ev.newState)}", "reason": "${escape(ev.reason ?: "")}" }"""
+        }
 
         return buildString {
             appendLine("{")
@@ -107,7 +145,7 @@ data class AudioDiagnostics(
             appendLine("  \"bluetooth\": {")
             appendLine("    \"device\": \"${escape(bluetoothDevice)}\",")
             appendLine("    \"profile\": \"${escape(bluetoothProfile)}\",")
-            appendLine("    \"scoState\": \"${escape(scoState)}\",")
+            appendLine("    \"hfpAudioState\": \"${escape(hfpAudioState)}\",")
             appendLine("    \"scoCodec\": \"${escape(scoCodec)}\"")
             appendLine("  },")
             appendLine("  \"route\": {")
@@ -116,16 +154,30 @@ data class AudioDiagnostics(
             appendLine("    \"state\": \"${escape(routeState)}\",")
             appendLine("    \"inputAvailable\": $inputAvailable,")
             appendLine("    \"outputAvailable\": $outputAvailable,")
-            appendLine("    \"silentAudioKeeper\": $silentAudioKeeper,")
-            appendLine("    \"audioFocusState\": \"${escape(audioFocusState)}\",")
-            appendLine("    \"estimatedLatency\": \"${escape(estimatedLatency)}\"")
+            appendLine("    \"isBidirectionalReady\": $isBidirectionalReady,")
+            appendLine("    \"scoKeepAliveState\": \"${escape(scoKeepAliveState)}\",")
+            appendLine("    \"audioFocusState\": \"${escape(audioFocusState)}\"")
+            appendLine("  },")
+            appendLine("  \"latencyAndTimings\": {")
+            appendLine("    \"routePreparationTimeMs\": $routePreparationTimeMs,")
+            appendLine("    \"audioBufferEstimateMs\": $audioBufferEstimateMs,")
+            appendLine("    \"processingTimeMs\": $processingTimeMs,")
+            appendLine("    \"endToEndLatency\": \"${escape(endToEndLatency)}\"")
+            appendLine("  },")
+            appendLine("  \"stabilityMetrics\": {")
+            appendLine("    \"routeLossCount\": $routeLossCount,")
+            appendLine("    \"recoveryCount\": $recoveryCount,")
+            appendLine("    \"scoDisconnectCount\": $scoDisconnectCount,")
+            appendLine("    \"communicationDeviceChangeCount\": $communicationDeviceChangeCount,")
+            appendLine("    \"lastRecoveryDurationMs\": $lastRecoveryDurationMs")
             appendLine("  },")
             appendLine("  \"whatsapp\": {")
             appendLine("    \"status\": \"${whatsappStatus.name}\",")
-            appendLine("    \"description\": \"${escape(whatsappStatus.label)}\"")
+            appendLine("    \"label\": \"${escape(whatsappStatus.label)}\"")
             appendLine("  },")
             appendLine("  \"inputDevices\": [$inputsJson],")
-            appendLine("  \"outputDevices\": [$outputsJson]")
+            appendLine("  \"outputDevices\": [$outputsJson],")
+            appendLine("  \"recentEvents\": [\n$eventsJson\n  ]")
             appendLine("}")
         }
     }
