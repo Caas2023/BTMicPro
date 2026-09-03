@@ -2,17 +2,19 @@ package com.btmicpro.ui
 
 import android.app.Application
 import android.content.Context
-import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.btmicpro.core.AudioDiagnosticsData
+import com.btmicpro.core.AudioDiagnostics
+import com.btmicpro.core.BluetoothAudioRouter
+import com.btmicpro.core.CommunicationRoute
 import com.btmicpro.core.DeviceCompatibilityManager
 import com.btmicpro.core.LiveAudioMonitor
 import com.btmicpro.core.MediaBooster
 import com.btmicpro.core.RiderAudioPreset
 import com.btmicpro.core.RouterState
+import com.btmicpro.core.WhatsAppRouteStatus
 import com.btmicpro.receiver.BootReceiver
 import com.btmicpro.service.BtMicService
 import com.btmicpro.service.FloatingButtonService
@@ -23,12 +25,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * MainViewModel — Focado exclusivamente em:
- * 1. Roteamento de Microfone Bluetooth SCO para o WhatsApp (com Zero Delay via SilentAudioKeeper).
- * 2. Processamento DSP de Voz e Vento para Motociclistas (VoiceProcessingEngine V4).
- * 3. Aumentador de Volume de Mídia / Chamada (MediaBooster - Modo Bar).
- * 4. Monitor de Áudio ao Vivo (Hear-Through para calibração de voz).
- * 5. Diagnóstico de Áudio em tempo real.
+ * MainViewModel V4 — Arquitetura bidirecional WhatsApp ↔ Intercom.
+ *
+ * Responsabilidades:
+ * - Controlador e estabilizador da rota de áudio Bluetooth de comunicação.
+ * - Gerenciamento de telemetria e diagnóstico em tempo real (AudioDiagnostics).
+ * - Exportação de relatórios em TXT e JSON.
+ * - Controle experimental de keep-alive e monitoramento ao vivo opcional.
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -54,11 +57,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedPreset = MutableStateFlow(RiderAudioPreset.NORMAL)
     val selectedPreset: StateFlow<RiderAudioPreset> = _selectedPreset.asStateFlow()
 
-    private val _diagnosticsData = MutableStateFlow<AudioDiagnosticsData?>(null)
-    val diagnosticsData: StateFlow<AudioDiagnosticsData?> = _diagnosticsData.asStateFlow()
+    // Diagnóstico V4 completo e exportável
+    private val _diagnostics = MutableStateFlow<AudioDiagnostics?>(null)
+    val diagnostics: StateFlow<AudioDiagnostics?> = _diagnostics.asStateFlow()
 
     private val _showDiagnosticsDialog = MutableStateFlow(false)
     val showDiagnosticsDialog: StateFlow<Boolean> = _showDiagnosticsDialog.asStateFlow()
+
+    // SilentAudioKeeper experimental (Item 28)
+    private val _silentKeepAliveEnabled = MutableStateFlow(false)
+    val silentKeepAliveEnabled: StateFlow<Boolean> = _silentKeepAliveEnabled.asStateFlow()
+
+    // Status do WhatsApp
+    private val _whatsappStatus = MutableStateFlow(WhatsAppRouteStatus.UNKNOWN)
+    val whatsappStatus: StateFlow<WhatsAppRouteStatus> = _whatsappStatus.asStateFlow()
 
     private val _isBarModeEnabled = MutableStateFlow(false)
     val isBarModeEnabled: StateFlow<Boolean> = _isBarModeEnabled.asStateFlow()
@@ -75,10 +87,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showPromoPopup = MutableStateFlow(false)
     val showPromoPopup: StateFlow<Boolean> = _showPromoPopup.asStateFlow()
 
+    // Instância local para diagnóstico sob demanda quando o serviço não está ativo
+    private val localRouter = BluetoothAudioRouter(context, viewModelScope)
+
     init {
         _autoStartOnBoot.value = prefs.getBoolean(BootReceiver.KEY_AUTO_START, true)
         _denoiseIntensity.value = prefs.getFloat(BootReceiver.KEY_DENOISE_LEVEL, 0.85f)
         _isRawAudioMode.value = prefs.getBoolean("raw_audio_mode", false)
+        _silentKeepAliveEnabled.value = prefs.getBoolean("silent_keepalive_enabled", false)
 
         val savedPresetIndex = prefs.getInt("rider_preset_index", 0)
         _selectedPreset.value = RiderAudioPreset.values().getOrElse(savedPresetIndex) { RiderAudioPreset.NORMAL }
@@ -100,6 +116,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             com.btmicpro.core.RouterStateHolder.isServiceRunning.collect { isRunning ->
                 _isRouterEnabled.value = isRunning
                 prefs.edit().putBoolean(BootReceiver.KEY_ROUTER_ENABLED, isRunning).apply()
+                if (isRunning) {
+                    _whatsappStatus.value = WhatsAppRouteStatus.ROUTE_PREPARED
+                }
             }
         }
 
@@ -119,6 +138,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun toggleSilentKeepAlive(enabled: Boolean) {
+        _silentKeepAliveEnabled.value = enabled
+        prefs.edit().putBoolean("silent_keepalive_enabled", enabled).apply()
+        localRouter.silentAudioKeepAliveEnabled = enabled
+    }
+
+    fun markWhatsAppUserValidated() {
+        _whatsappStatus.value = WhatsAppRouteStatus.USER_VALIDATED
+    }
+
     fun openDiagnostics() {
         refreshDiagnostics()
         _showDiagnosticsDialog.value = true
@@ -129,84 +158,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshDiagnostics() {
-        val modeStr = when (audioManager.mode) {
-            AudioManager.MODE_NORMAL -> "MODE_NORMAL (0)"
-            AudioManager.MODE_RINGTONE -> "MODE_RINGTONE (1)"
-            AudioManager.MODE_IN_CALL -> "MODE_IN_CALL (2)"
-            AudioManager.MODE_IN_COMMUNICATION -> "MODE_IN_COMMUNICATION (3)"
-            AudioManager.MODE_CALL_SCREENING -> "MODE_CALL_SCREENING (4)"
-            else -> "UNKNOWN (${audioManager.mode})"
-        }
-
-        val commDevStr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.communicationDevice?.let { "${it.productName} (type=${it.type})" } ?: "Nenhum"
-        } else {
-            "Não suportado (API < 31)"
-        }
-
-        val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).map { 
-            "${it.productName} [tipo=${it.type}]" 
-        }
-        val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { 
-            "${it.productName} [tipo=${it.type}]" 
-        }
-
-        val stateDesc = when (val s = routerState.value) {
-            is RouterState.RoutingVerified -> "VERIFICADO (Pronto para WhatsApp: ${s.device.name})"
-            is RouterState.ScoActive -> "SCO ATIVO (${s.device.name})"
-            is RouterState.CommunicationDeviceSelected -> "DISPOSITIVO SELECIONADO (${s.device.name})"
-            is RouterState.AudioDeviceAvailable -> "DISPOSITIVO DE ÁUDIO DETECTADO (${s.device.name})"
-            is RouterState.BluetoothConnected -> "BLUETOOTH CONECTADO (${s.device.name})"
-            is RouterState.Recovering -> "RECUPERANDO (Tentativa ${s.attempt})"
-            is RouterState.RoutingLost -> "CONEXÃO PERDIDA: ${s.reason}"
-            is RouterState.Disconnected -> "DESCONECTADO"
-            else -> "INATIVO"
-        }
-
-        val profile = DeviceCompatibilityManager.currentProfile
-        _diagnosticsData.value = AudioDiagnosticsData(
-            deviceModel = Build.MODEL,
-            manufacturer = Build.MANUFACTURER,
-            androidVersion = Build.VERSION.RELEASE,
-            sdkVersion = Build.VERSION.SDK_INT,
-            bluetoothDeviceName = getConnectedBluetoothName() ?: "Nenhum fone conectado",
-            audioMode = modeStr,
-            communicationDevice = commDevStr,
-            inputDevices = inputs,
-            outputDevices = outputs,
-            sampleRate = profile.preferredSampleRate,
-            isScoActive = isScoActive(),
-            routingStateDescription = stateDesc,
-            estimatedLatencyMs = if (profile.isCubotKingKongXPro) 15 else 20,
-            isKeeperActive = _isRouterEnabled.value,
-            hardwareProfile = profile.profileName
-        )
+        localRouter.silentAudioKeepAliveEnabled = _silentKeepAliveEnabled.value
+        _diagnostics.value = localRouter.getDiagnosticsData()
     }
 
-    private fun isScoActive(): Boolean {
-        return try {
-            if (audioManager.isBluetoothScoOn) return true
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-            devices.any {
-                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-            }
-        } catch (e: Exception) { false }
+    fun exportDiagnosticsText(): String {
+        refreshDiagnostics()
+        return _diagnostics.value?.exportAsText() ?: "Sem dados de diagnóstico"
     }
 
-    private fun getConnectedBluetoothName(): String? {
-        return try {
-            val devs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-            devs.find {
-                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-            }?.productName?.toString() 
-                ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audioManager.availableCommunicationDevices.find { 
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET 
-                    }?.productName?.toString()
-                } else null
-        } catch (e: Exception) { null }
+    fun exportDiagnosticsJson(): String {
+        refreshDiagnostics()
+        return _diagnostics.value?.exportAsJson() ?: "{}"
     }
 
     private fun checkPromoPopup() {
@@ -333,19 +296,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startRouterService() { BtMicService.start(context) }
     private fun stopRouterService() { BtMicService.stop(context) }
 
-    fun setDenoiseIntensity(level: Float) { 
+    fun setDenoiseIntensity(level: Float) {
         _denoiseIntensity.value = level
-        prefs.edit().putFloat(BootReceiver.KEY_DENOISE_LEVEL, level).apply() 
+        prefs.edit().putFloat(BootReceiver.KEY_DENOISE_LEVEL, level).apply()
     }
 
-    fun setAutoStartOnBoot(enabled: Boolean) { 
+    fun setAutoStartOnBoot(enabled: Boolean) {
         _autoStartOnBoot.value = enabled
-        prefs.edit().putBoolean(BootReceiver.KEY_AUTO_START, enabled).apply() 
+        prefs.edit().putBoolean(BootReceiver.KEY_AUTO_START, enabled).apply()
     }
 
-    override fun onCleared() { 
+    override fun onCleared() {
         super.onCleared()
         liveAudioMonitor.stopMonitoring()
-        mediaBooster.release() 
+        mediaBooster.release()
     }
 }

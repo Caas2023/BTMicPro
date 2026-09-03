@@ -28,9 +28,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
-    <!-- Permissão para simular chamada (Telecom ConnectionService) -->
-    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
-
     <!-- Permissão para envio de notificações (Android 13+ / API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -58,7 +55,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Serviço de Roteamento de Microfone Bluetooth (Modo Router) V2 -->
+        <!-- Serviço de Roteamento de Microfone Bluetooth (Modo Router) V4 -->
         <service
             android:name=".service.BtMicService"
             android:exported="false"
@@ -68,16 +65,6 @@
         <service
             android:name=".service.FloatingButtonService"
             android:exported="false" />
-
-        <!-- Serviço de Conexão Telecom - Simula chamada fantasma para manter SCO sempre ativo -->
-        <service
-            android:name=".telecom.FakeCallConnectionService"
-            android:exported="true"
-            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
-            <intent-filter>
-                <action android:name="android.telecom.ConnectionService" />
-            </intent-filter>
-        </service>
 
         <!-- Broadcast Receivers -->
         <receiver

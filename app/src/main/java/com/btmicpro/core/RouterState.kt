@@ -1,12 +1,9 @@
 package com.btmicpro.core
 
+import android.media.AudioDeviceInfo
+
 /**
  * Informações do dispositivo de áudio Bluetooth conectado.
- *
- * @property name Nome legível do dispositivo (ex: "JBL Tune 520", "Intercomunicador Y10").
- * @property address Endereço MAC ou identificador único do dispositivo.
- * @property isScoConnected Indica se o canal SCO (voz bidirecional) está ativo.
- * @property sampleRate Taxa de amostragem em Hz (ex: 16000 mSBC ou 8000 CVSD).
  */
 data class BluetoothDeviceInfo(
     val name: String,
@@ -16,59 +13,93 @@ data class BluetoothDeviceInfo(
 )
 
 /**
- * Máquina de Estados de Roteamento de Áudio Bluetooth V4 (8 Estágios).
+ * Representa a rota de comunicação bidirecional completa (Entrada + Saída).
+ */
+data class CommunicationRoute(
+    val inputDevice: AudioDeviceInfo? = null,
+    val outputDevice: AudioDeviceInfo? = null,
+    val communicationDevice: AudioDeviceInfo? = null,
+    val bluetoothDeviceName: String? = null,
+    val bluetoothProfile: String? = null,
+    val isBidirectionalReady: Boolean = false
+)
+
+/**
+ * Status observável da rota de comunicação para o WhatsApp.
+ */
+enum class WhatsAppRouteStatus(val label: String) {
+    UNKNOWN("Desconhecido"),
+    ROUTE_PREPARED("Rota de Comunicação Pronta no Android"),
+    USER_VALIDATED("Validado Fisicamente no Aparelho"),
+    FAILED("Falha na Rota de Comunicação"),
+    NOT_DIRECTLY_VERIFIABLE("Não Diretamente Verificável (Sandbox)")
+}
+
+/**
+ * Máquina de Estados de Roteamento de Áudio V4 (10 Estados Canônicos).
  * 
- * Permite diagnóstico inequívoco em tempo real de cada estágio da conexão com o fone/intercomunicador.
+ * Ordem do Ciclo de Vida:
+ * 1. DISCONNECTED
+ * 2. BLUETOOTH_CONNECTED
+ * 3. COMMUNICATION_DEVICE_AVAILABLE
+ * 4. COMMUNICATION_DEVICE_SELECTED
+ * 5. INPUT_AVAILABLE
+ * 6. OUTPUT_AVAILABLE
+ * 7. ROUTE_READY
+ * 8. ROUTE_LOST
+ * 9. RECOVERING
+ * 10. ERROR
  */
 sealed class RouterState {
 
-    /**
-     * 1. O roteamento está desligado ou o fone está desconectado.
-     */
+    /** 1. Intercom desconectado ou serviço inativo */
     data object Disconnected : RouterState()
 
-    /**
-     * 2. O fone Bluetooth foi pareado e conectado via camada ACL.
-     */
+    /** 2. Dispositivo Bluetooth conectado via ACL/HFP */
     data class BluetoothConnected(val device: BluetoothDeviceInfo) : RouterState()
 
-    /**
-     * 3. O dispositivo de áudio foi detectado pelo AudioManager do sistema operacional.
-     */
-    data class AudioDeviceAvailable(val device: BluetoothDeviceInfo) : RouterState()
+    /** 3. Dispositivo de comunicação Bluetooth identificado pelo sistema operacional */
+    data class CommunicationDeviceAvailable(val device: BluetoothDeviceInfo) : RouterState()
 
-    /**
-     * 4. O dispositivo foi registrado com sucesso como Dispositivo de Comunicação preferencial (setCommunicationDevice).
-     */
+    /** 4. Communication Device selecionado via AudioManager (setCommunicationDevice) */
     data class CommunicationDeviceSelected(val device: BluetoothDeviceInfo) : RouterState()
 
-    /**
-     * 5. O canal de áudio bidirecional SCO (mSBC ou CVSD) está aberto e ativo no hardware.
-     */
-    data class ScoActive(val device: BluetoothDeviceInfo) : RouterState()
+    /** 5. Entrada de microfone Bluetooth SCO/BLE detectada e confirmada */
+    data class InputAvailable(val device: BluetoothDeviceInfo) : RouterState()
+
+    /** 6. Saída de áudio Bluetooth SCO/BLE detectada e confirmada */
+    data class OutputAvailable(val device: BluetoothDeviceInfo) : RouterState()
 
     /**
-     * 6. Roteamento integralmente validado: microfone Bluetooth ativo, verificado com keep-alive e pronto para WhatsApp.
+     * 7. Rota bidirecional pronta e confirmada pelo sistema:
+     * Entrada Bluetooth + Saída Bluetooth + Communication Device Ativo.
      */
+    data class RouteReady(
+        val device: BluetoothDeviceInfo,
+        val sampleRate: Int = 16000,
+        val estimatedLatencyMs: Int = 20,
+        val route: CommunicationRoute? = null
+    ) : RouterState()
+
+    /** 8. Perda inesperada de rota ou desconexão do intercom */
+    data class RouteLost(val reason: String) : RouterState()
+
+    /** 9. Processo de recuperação com retries e backoff exponencial */
+    data class Recovering(val device: BluetoothDeviceInfo?, val attempt: Int) : RouterState()
+
+    /** 10. Erro irrecuperável */
+    data class Error(val message: String) : RouterState()
+
+    // Aliases e retrocompatibilidade com UI e componentes
+    data object Inactive : RouterState()
+    data object WaitingDevice : RouterState()
+    data class RoutingActive(val device: BluetoothDeviceInfo) : RouterState()
+    data class AudioDeviceAvailable(val device: BluetoothDeviceInfo) : RouterState()
+    data class ScoActive(val device: BluetoothDeviceInfo) : RouterState()
     data class RoutingVerified(
         val device: BluetoothDeviceInfo,
         val sampleRate: Int = 16000,
         val estimatedLatencyMs: Int = 20
     ) : RouterState()
-
-    /**
-     * 7. Ocorreu perda de conexão ou desconexão do dispositivo Bluetooth.
-     */
     data class RoutingLost(val reason: String) : RouterState()
-
-    /**
-     * 8. O sistema está executando a rotina de autorrecuperação e reconexão do canal de comunicação.
-     */
-    data class Recovering(val device: BluetoothDeviceInfo?, val attempt: Int) : RouterState()
-
-    // Aliases e wrappers para retrocompatibilidade com UI e componentes legados
-    data object Inactive : RouterState()
-    data object WaitingDevice : RouterState()
-    data class RoutingActive(val device: BluetoothDeviceInfo) : RouterState()
-    data class Error(val message: String) : RouterState()
 }

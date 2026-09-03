@@ -23,8 +23,12 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * V2.2 - Fix WhatsApp: Não usa mais phoneCall para não ser detectado como ligação.
- * Usa apenas microphone|connectedDevice + MODE_NORMAL + setCommunicationDevice
+ * BtMicService — Foreground Service de Controle e Estabilização da Rota de Comunicação Bluetooth V4.
+ *
+ * Responsabilidade estrita (Item 51 do Prompt Master):
+ * - Manter a rota de comunicação ativa em segundo plano sem transformar o app em gravador.
+ * - Monitorar alterações no hardware e acionar a autorrecuperação.
+ * - Exibir notificação com status real e honesto da rota de áudio.
  */
 class BtMicService : Service() {
 
@@ -36,7 +40,7 @@ class BtMicService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "Criando BtMicService V2.2 - Sem phoneCall (fix WhatsApp)")
+        Log.d(TAG, "Criando BtMicService V4 — Roteamento bidirecional WhatsApp ↔ Intercom")
 
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
@@ -65,7 +69,6 @@ class BtMicService : Service() {
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // FIX: Removido PHONE_CALL para WhatsApp não detectar como ligação
             val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
@@ -85,52 +88,71 @@ class BtMicService : Service() {
 
     private fun updateNotification(state: RouterState) {
         val notification = when (state) {
-            is RouterState.RoutingVerified -> {
+            is RouterState.RouteReady -> {
                 buildNotification(
-                    title = "🎧 Microfone Bluetooth Verificado",
-                    content = "Pronto para WhatsApp: ${state.device.name} (${state.sampleRate}Hz)"
+                    title = "🎧 BT Mic Pro — Rota Pronta",
+                    content = "Intercom: ${state.device.name} • Entrada e Saída ativas"
                 )
             }
-            is RouterState.ScoActive -> {
+            is RouterState.RoutingVerified -> {
                 buildNotification(
-                    title = "🎧 Canal SCO Ativo",
-                    content = "Canal de voz conectado: ${state.device.name}"
+                    title = "🎧 BT Mic Pro — Rota Pronta",
+                    content = "Intercom: ${state.device.name} • Canal verificado"
+                )
+            }
+            is RouterState.OutputAvailable -> {
+                buildNotification(
+                    title = "🎧 Saída Bluetooth Pronta",
+                    content = "Intercom: ${state.device.name} • Preparando microfone"
+                )
+            }
+            is RouterState.InputAvailable -> {
+                buildNotification(
+                    title = "🎧 Microfone Bluetooth Pronto",
+                    content = "Intercom: ${state.device.name} • Preparando fone"
                 )
             }
             is RouterState.CommunicationDeviceSelected -> {
                 buildNotification(
                     title = "🎧 Dispositivo Selecionado",
-                    content = "Comunicação vinculada: ${state.device.name}"
+                    content = "Intercom: ${state.device.name} • Ativando canal"
                 )
             }
-            is RouterState.AudioDeviceAvailable -> {
+            is RouterState.CommunicationDeviceAvailable, is RouterState.AudioDeviceAvailable -> {
+                val name = if (state is RouterState.CommunicationDeviceAvailable) state.device.name else (state as RouterState.AudioDeviceAvailable).device.name
                 buildNotification(
-                    title = "🎧 Fone de Áudio Detectado",
-                    content = "Configurando rotas para: ${state.device.name}"
+                    title = "🎧 Dispositivo Identificado",
+                    content = "Intercom: $name • Vinculando ao sistema"
                 )
             }
             is RouterState.BluetoothConnected -> {
                 buildNotification(
                     title = "🟡 Bluetooth Conectado",
-                    content = "Preparando canal de voz: ${state.device.name}"
+                    content = "Intercom: ${state.device.name} • Aguardando canal de voz"
                 )
             }
             is RouterState.Recovering -> {
                 buildNotification(
-                    title = "🔄 Reconectando Fone...",
-                    content = "Tentativa ${state.attempt} de recuperação do canal"
+                    title = "🔄 Reconectando Rota...",
+                    content = "Tentativa ${state.attempt} de restabelecimento do canal"
+                )
+            }
+            is RouterState.RouteLost -> {
+                buildNotification(
+                    title = "⚠️ Rota de Comunicação Perdida",
+                    content = state.reason
                 )
             }
             is RouterState.RoutingLost -> {
                 buildNotification(
-                    title = "⚠️ Conexão Perdida",
+                    title = "⚠️ Rota Perdida",
                     content = state.reason
                 )
             }
-            is RouterState.RoutingActive -> {
+            is RouterState.Error -> {
                 buildNotification(
-                    title = getString(R.string.notification_title_active),
-                    content = "Conectado a: ${state.device.name} (Ativo)"
+                    title = "⚠️ Alerta de Áudio Bluetooth",
+                    content = state.message
                 )
             }
             is RouterState.WaitingDevice -> {
@@ -139,10 +161,16 @@ class BtMicService : Service() {
                     content = getString(R.string.notification_desc_waiting)
                 )
             }
-            is RouterState.Error -> {
+            is RouterState.RoutingActive -> {
                 buildNotification(
-                    title = "⚠️ Alerta de Áudio Bluetooth",
-                    content = state.message
+                    title = "🎧 Intercom Ativo",
+                    content = "Conectado a: ${state.device.name}"
+                )
+            }
+            is RouterState.ScoActive -> {
+                buildNotification(
+                    title = "🎧 Canal SCO Ativo",
+                    content = "Intercom: ${state.device.name}"
                 )
             }
             RouterState.Disconnected, RouterState.Inactive -> return
@@ -169,15 +197,13 @@ class BtMicService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(content)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setOngoing(true)
+            .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(pendingOpenApp)
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                getString(R.string.notification_action_stop),
-                pendingStop
-            )
+            .addAction(R.drawable.ic_launcher, getString(R.string.notification_action_stop), pendingStop)
+            .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
 
@@ -197,9 +223,10 @@ class BtMicService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "Destruindo BtMicService")
-        com.btmicpro.core.RouterStateHolder.updateServiceRunning(false)
+        Log.d(TAG, "Destruindo BtMicService V4 — Limpando rotas e recursos")
         audioRouter.stopRouting()
+        com.btmicpro.core.RouterStateHolder.updateServiceRunning(false)
+        com.btmicpro.core.RouterStateHolder.updateState(RouterState.Disconnected)
         serviceScope.cancel()
     }
 
@@ -207,9 +234,9 @@ class BtMicService : Service() {
 
     companion object {
         private const val TAG = "BtMicService"
-        const val CHANNEL_ID = "bt_mic_router_channel"
-        const val NOTIFICATION_ID = 1001
-        const val ACTION_STOP_SERVICE = "com.btmicpro.ACTION_STOP_SERVICE"
+        private const val CHANNEL_ID = "bt_mic_service_channel"
+        private const val NOTIFICATION_ID = 1001
+        const val ACTION_STOP_SERVICE = "com.btmicpro.action.STOP_SERVICE"
 
         fun start(context: Context) {
             val intent = Intent(context, BtMicService::class.java)

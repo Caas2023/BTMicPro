@@ -253,6 +253,48 @@
   - `docs/HISTORICO_E_STATUS.md`
   - `BTMicPro.apk`
   - `BTMicPro_v1.4.0_V4.apk`
-- **Status**: ✅ 100% limpo, compilado e validado.
+### 2026-09-02 22:36 (BRT) — Arquitetura V4 Definitiva: Roteamento Bidirecional WhatsApp ↔ Intercom Bluetooth
+- **Descrição**:
+  1. **Plano de Controle Exclusivo**:
+     - O BT Mic Pro foi consolidado como Controlador e Estabilizador da Rota de Áudio de Comunicação Bluetooth (sem criar arquivos, sem interceptar mensagens e sem disputar hardware com o WhatsApp).
+  2. **Arquitetura Modular em 7 Componentes**:
+     - `BluetoothRoutingEngine.kt`: Autoridade única centralizando o ciclo de vida do roteamento.
+     - `CommunicationDeviceManager.kt`: Seleção moderna via `setCommunicationDevice` com validação de confirmação pós-seleção e fallback legado.
+     - `AudioRouteMonitor.kt`: Monitoramento de `AudioDeviceCallback`, `OnCommunicationDeviceChangedListener` e `OnModeChangedListener` com debounce de 250ms.
+     - `RoutingRecoveryManager.kt`: Recuperação automática resiliente com retries e backoff exponencial serializado (600ms, 1200ms, 2400ms, 3500ms).
+     - `DeviceCompatibilityManager.kt`: Perfil dedicado para Cubot KingKong X Pro (MediaTek Dimensity 8200) e perfil genérico.
+     - `AudioDiagnostics.kt`: Telemetria completa em tempo real e exportadores puros para TXT e JSON.
+     - `BtMicService.kt`: Foreground Service estabilizando a rota de comunicação em background com notificações transparentes.
+  3. **Máquina de Estados Finita de 10 Estágios**:
+     - `DISCONNECTED` -> `BLUETOOTH_CONNECTED` -> `COMMUNICATION_DEVICE_AVAILABLE` -> `COMMUNICATION_DEVICE_SELECTED` -> `INPUT_AVAILABLE` -> `OUTPUT_AVAILABLE` -> `ROUTE_READY` -> `ROUTE_LOST` -> `RECOVERING` -> `ERROR`.
+  4. **Remoção de Conflitos e Código Legado**:
+     - Removido pacote `telecom` (`FakeCallConnectionService` e `TelecomHelper`) e permissão `MANAGE_OWN_CALLS` para evitar conflito de chamada com o WhatsApp.
+     - `SilentAudioKeeper` tornado experimental e opcional via toggle (`silentAudioKeepAliveEnabled`).
+  5. **Interface e Diagnóstico**:
+     - Card de Telemetria de Rota em tempo real (Bluetooth, Intercom, Comunicação, Entrada, Saída, Rota e Status do WhatsApp).
+     - Dialog Developer Audio Diagnostics com botões para copiar relatório em TXT e JSON.
+  6. **Testes e Build**:
+     - `RoutingEngineV4Test.kt` aprovado com 100% de sucesso (`BUILD SUCCESSFUL in 22s`).
+     - Fontes compilados com sucesso via `compileDebugSources` (`BUILD SUCCESSFUL in 11s`).
+     - APK final gerado com sucesso via `assembleDebug` (`BUILD SUCCESSFUL in 17s`): `BTMicPro.apk` e `BTMicPro_v1.4.0_V4_Definitiva.apk`.
+- **Arquivos Afetados**:
+  - `app/src/main/java/com/btmicpro/core/BluetoothRoutingEngine.kt` [NOVO]
+  - `app/src/main/java/com/btmicpro/core/CommunicationDeviceManager.kt` [NOVO]
+  - `app/src/main/java/com/btmicpro/core/AudioRouteMonitor.kt` [NOVO]
+  - `app/src/main/java/com/btmicpro/core/RoutingRecoveryManager.kt` [NOVO]
+  - `app/src/main/java/com/btmicpro/core/AudioDiagnostics.kt` [NOVO]
+  - `app/src/test/java/com/btmicpro/core/RoutingEngineV4Test.kt` [NOVO]
+  - `docs/architecture/V4_AUDIO_ROUTING.md` [NOVO]
+  - `app/src/main/java/com/btmicpro/telecom/` [REMOVIDO]
+  - `app/src/main/AndroidManifest.xml`
+  - `app/src/main/java/com/btmicpro/core/RouterState.kt`
+  - `app/src/main/java/com/btmicpro/core/BluetoothAudioRouter.kt`
+  - `app/src/main/java/com/btmicpro/service/BtMicService.kt`
+  - `app/src/main/java/com/btmicpro/ui/MainViewModel.kt`
+  - `app/src/main/java/com/btmicpro/ui/MainScreen.kt`
+  - `docs/HISTORICO_E_STATUS.md`
+  - `BTMicPro.apk`
+  - `BTMicPro_v1.4.0_V4_Definitiva.apk`
+- **Status**: ✅ Arquitetura V4 Definitiva 100% implementada, testada e validada.
 
 
