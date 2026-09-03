@@ -592,8 +592,30 @@
      - Enviado para `https://github.com/Caas2023/BTMicPro.git` no branch `main` (`b32458f..672dccb`).
      - Repositório remoto 100% atualizado e sincronizado.
 - **Arquivos Afetados**:
-  - Repositório Git completo.
-- **Status**: ✅ Repositório Git sincronizado e publicado com sucesso.
+### 2026-09-03 17:52 (BRT) — Lançamento da Versão v1.5.1 (Code 19) — Otimização Arquitetural V5.1
+- **Descrição**:
+  1. **Eliminação do Wrapper Redundante (`BluetoothAudioRouter.kt`)**:
+     - Removida a classe intermediária `BluetoothAudioRouter.kt` (economia de 17 arestas no grafo de dependências).
+     - `BtMicService` passa a se comunicar diretamente com a autoridade central `BluetoothRoutingEngine`.
+  2. **Limpeza de Instância Inativa no `MainViewModel.kt`**:
+     - Removida a variável `localRouter` que instanciava desnecessariamente um roteador em background dentro do ViewModel.
+     - Diagnósticos sob demanda (`refreshDiagnostics`) otimizados para consultar `RouterStateHolder.activeEngine` ou instanciar pontualmente quando o serviço estiver pausado.
+  3. **Expansão de Suporte a Bluetooth LE Audio (API 33+)**:
+     - Atualizado `CommunicationDeviceManager.kt` para suportar `TYPE_BLE_SPEAKER` e `TYPE_BLE_HEADSET` para intercomunicadores de moto e capacetes inteligentes modernos.
+  4. **Atualização de Versão e Build**:
+     - Incrementado `versionCode = 19` e `versionName = "1.5.1"` em `app/build.gradle.kts`.
+     - Testes unitários executados e aprovados com sucesso (`testDebugUnitTest`).
+     - Gerado novo binário oficial em `APK/BTMicPro_v1.5.1.apk` (18.92 MB) e atualizado `APK/BTMicPro_latest.apk`.
+- **Arquivos Afetados**:
+  - `app/src/main/java/com/btmicpro/service/BtMicService.kt`
+  - `app/src/main/java/com/btmicpro/ui/MainViewModel.kt`
+  - `app/src/main/java/com/btmicpro/core/CommunicationDeviceManager.kt`
+  - `app/src/main/java/com/btmicpro/core/BluetoothAudioRouter.kt` (removido)
+  - `app/build.gradle.kts`
+  - `APK/BTMicPro_v1.5.1.apk` (novo)
+  - `APK/BTMicPro_latest.apk` (atualizado)
+  - `docs/HISTORICO_E_STATUS.md`
+- **Status**: ✅ Versão 1.5.1 (code 19) compilada, testada e pronta para uso.
 
 
 

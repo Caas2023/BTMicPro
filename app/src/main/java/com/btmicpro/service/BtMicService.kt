@@ -14,7 +14,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.btmicpro.MainActivity
 import com.btmicpro.R
-import com.btmicpro.core.BluetoothAudioRouter
+import com.btmicpro.core.BluetoothRoutingEngine
 import com.btmicpro.core.RouterState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,7 +35,7 @@ class BtMicService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
 
-    private lateinit var audioRouter: BluetoothAudioRouter
+    private lateinit var routingEngine: BluetoothRoutingEngine
     private lateinit var notificationManager: NotificationManager
     private lateinit var dualVolumeManager: com.btmicpro.core.DualVolumeManager
 
@@ -49,10 +49,10 @@ class BtMicService : Service() {
         dualVolumeManager = com.btmicpro.core.DualVolumeManager.getInstance(this)
         dualVolumeManager.startMonitoring()
 
-        audioRouter = BluetoothAudioRouter(this, serviceScope)
+        routingEngine = BluetoothRoutingEngine(this, serviceScope)
 
         serviceScope.launch {
-            audioRouter.routerState.collect { state ->
+            routingEngine.routerState.collect { state ->
                 com.btmicpro.core.RouterStateHolder.updateState(state)
                 com.btmicpro.core.AppLogger.i(TAG, "Notificação de rota atualizada para: ${state.javaClass.simpleName}")
                 updateNotification(state)
@@ -88,8 +88,8 @@ class BtMicService : Service() {
         }
 
         com.btmicpro.core.AppLogger.i(TAG, "BtMicService em Primeiro Plano iniciado (Foreground Service ativo)")
-        com.btmicpro.core.RouterStateHolder.activeEngine = audioRouter.engine
-        audioRouter.startRouting()
+        com.btmicpro.core.RouterStateHolder.activeEngine = routingEngine
+        routingEngine.startEngine()
         com.btmicpro.core.RouterStateHolder.updateServiceRunning(true)
 
         return START_STICKY
@@ -251,7 +251,7 @@ class BtMicService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         com.btmicpro.core.AppLogger.i(TAG, "Destruindo BtMicService — Limpando rotas de áudio e recursos do SO")
-        audioRouter.stopRouting()
+        routingEngine.stopEngine()
         dualVolumeManager.stopMonitoring()
         com.btmicpro.core.RouterStateHolder.updateServiceRunning(false)
         com.btmicpro.core.RouterStateHolder.updateState(RouterState.Disconnected)

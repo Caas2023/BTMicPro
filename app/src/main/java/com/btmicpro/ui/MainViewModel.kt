@@ -7,7 +7,6 @@ import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.btmicpro.core.AudioDiagnostics
-import com.btmicpro.core.BluetoothAudioRouter
 import com.btmicpro.core.CommunicationRoute
 import com.btmicpro.core.DeviceCompatibilityManager
 import com.btmicpro.core.LiveAudioMonitor
@@ -102,9 +101,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showSettingsScreen = MutableStateFlow(false)
     val showSettingsScreen: StateFlow<Boolean> = _showSettingsScreen.asStateFlow()
 
-    // Instância local para diagnóstico sob demanda quando o serviço não está ativo
-    private val localRouter = BluetoothAudioRouter(context, viewModelScope)
-
     init {
         _autoStartOnBoot.value = prefs.getBoolean(BootReceiver.KEY_AUTO_START, true)
         // Por padrão, Melhoramento no MÁXIMO EXTREMO (1.0 = 100%)
@@ -167,7 +163,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleSilentKeepAlive(enabled: Boolean) {
         _silentKeepAliveEnabled.value = enabled
         prefs.edit().putBoolean("silent_keepalive_enabled", enabled).apply()
-        localRouter.silentAudioKeepAliveEnabled = enabled
+        com.btmicpro.core.RouterStateHolder.activeEngine?.useExperimentalKeepAlive = enabled
     }
 
     fun markWhatsAppUserValidated() {
@@ -202,10 +198,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshDiagnostics() {
         val activeEngine = com.btmicpro.core.RouterStateHolder.activeEngine
         _diagnostics.value = if (activeEngine != null) {
+            activeEngine.useExperimentalKeepAlive = _silentKeepAliveEnabled.value
             activeEngine.getFullDiagnostics()
         } else {
-            localRouter.silentAudioKeepAliveEnabled = _silentKeepAliveEnabled.value
-            localRouter.getDiagnosticsData()
+            val temporaryEngine = com.btmicpro.core.BluetoothRoutingEngine(context, viewModelScope)
+            temporaryEngine.useExperimentalKeepAlive = _silentKeepAliveEnabled.value
+            val data = temporaryEngine.getFullDiagnostics()
+            temporaryEngine.stopEngine()
+            data
         }
     }
 

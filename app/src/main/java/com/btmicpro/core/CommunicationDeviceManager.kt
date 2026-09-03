@@ -77,11 +77,15 @@ class CommunicationDeviceManager(private val context: Context) {
             return null
         }
 
-        // Filtra estritamente dispositivos Bluetooth bidirecionais (SCO e BLE Headset)
+        // Filtra estritamente dispositivos Bluetooth bidirecionais (SCO e BLE Headset/Speaker)
         val eligibleDevices = available.filter { dev ->
-            dev.isSink && (
-                dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+            val isBleCompatible = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                dev.type == AudioDeviceInfo.TYPE_BLE_HEADSET || dev.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+            } else {
                 dev.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+            }
+            dev.isSink && (
+                dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || isBleCompatible
             )
         }
 
@@ -113,6 +117,15 @@ class CommunicationDeviceManager(private val context: Context) {
         if (bleDevice != null) {
             Log.d(TAG, "Melhor dispositivo encontrado (BLE Headset Sink): ${bleDevice.productName} (ID=${bleDevice.id})")
             return bleDevice
+        }
+
+        // Prioridade 3: TYPE_BLE_SPEAKER (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val bleSpeaker = eligibleDevices.find { it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER }
+            if (bleSpeaker != null) {
+                Log.d(TAG, "Melhor dispositivo encontrado (BLE Speaker Sink): ${bleSpeaker.productName} (ID=${bleSpeaker.id})")
+                return bleSpeaker
+            }
         }
 
         return null
