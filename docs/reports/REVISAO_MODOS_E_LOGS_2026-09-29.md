@@ -72,3 +72,5 @@ Eventos possuem data/fuso, sessão, sequência, PID, tempo monotônico e perfil 
 ## Repositório e ferramentas
 
 MCP oficial GitHub v1.12.2 instalado e conectado no OpenCode V2 deste ambiente. Remoto `https://github.com/Caas2023/BTMicPro.git`; credencial armazenada fora do projeto. Artefatos de depuração, backups ADB e logs brutos ficam fora do histórico Git. Entrega local em `APK/BTMicPro_v1.5.11.apk`, preservando a 1.5.9 para retorno.
+
+Código v1.5.11 publicado na branch `main`, commit `7723cef`; push confirmado em 29/09/2026.
