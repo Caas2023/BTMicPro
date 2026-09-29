@@ -1,582 +1,529 @@
 package com.btmicpro.core
 
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
+import android.os.SystemClock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import java.util.LinkedList
+import kotlin.coroutines.coroutineContext
 
-/**
- * BluetoothRoutingEngine — Autoridade Central e Única de Roteamento de Comunicação Bluetooth V5.
- *
- * Princípio Arquitetural Absoluto (Prompt Master V5):
- * O BT Mic Pro NÃO é um gravador nem injetor de PCM.
- * Atua exclusivamente como CONTROLADOR E ESTABILIZADOR DA ROTA DE ÁUDIO DE COMUNICAÇÃO BLUETOOTH.
- *
- * ENTRADA: Microfone Intercom -> Bluetooth HFP/SCO -> Android Audio Comm Input -> WhatsApp
- * SAÍDA: WhatsApp -> Android Audio Comm Output -> Bluetooth HFP/SCO -> Intercom
- */
-class BluetoothRoutingEngine(
-    private val context: Context,
-    private val coroutineScope: CoroutineScope
-) {
-
-    private val audioManager: AudioManager =
-        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-
-    val commDeviceManager = CommunicationDeviceManager(context)
+/** Experimentos de rota sem captura própria; atividade e modo são controlados por perfil. */
+class BluetoothRoutingEngine(context: Context, private val coroutineScope: CoroutineScope) {
+    private val appContext = context.applicationContext
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    val commDeviceManager = CommunicationDeviceManager(context.applicationContext)
     private val profile = DeviceCompatibilityManager.currentProfile
-
-    // Mutex para prevenção de guerra de rota e garantia de serialização (Item 20)
-    private val routeMutex = Mutex()
-
-    // Máquina de estados central V5 (13 estágios — Item 7)
     private val _routerState = MutableStateFlow<RouterState>(RouterState.Disconnected)
     val routerState: StateFlow<RouterState> = _routerState.asStateFlow()
-
-    // Rota de comunicação ativa observada
     private val _currentRoute = MutableStateFlow(CommunicationRoute())
     val currentRoute: StateFlow<CommunicationRoute> = _currentRoute.asStateFlow()
-
-    // Status do WhatsApp (Item 9)
-    private val _whatsappStatus = MutableStateFlow(WhatsAppRouteStatus.UNKNOWN)
-    val whatsappStatus: StateFlow<WhatsAppRouteStatus> = _whatsappStatus.asStateFlow()
-
-    // Contadores de queda e estabilidade (Item 58)
-    var routeLossCount = 0
-        private set
-    var recoveryCount = 0
-        private set
-    var scoDisconnectCount = 0
-        private set
-    var communicationDeviceChangeCount = 0
-        private set
-
-    // Cronometragem de tempos (Item 12 e 59)
-    private var preparationStartTime = 0L
-    var routePreparationTimeMs = 0L
-        private set
-
-    // Histórico de até 100 eventos em memória (Item 61)
-    private val eventHistory = LinkedList<RouteEvent>()
-
-    // Componente experimental de Keep-Alive (Item 26, 27, 28)
-    private val scoKeepAlive = ExperimentalScoKeepAlive()
-    var useExperimentalKeepAlive: Boolean = false
-        set(value) {
-            field = value
-            if (value && isRunning) {
-                try { scoKeepAlive.start(profile.preferredSampleRate) } catch (ignored: Exception) {}
-            } else {
-                try { scoKeepAlive.stop() } catch (ignored: Exception) {}
-            }
-        }
-
-    // Camada B: Gerenciador de HFP / Headset (Item 14, 15)
-    @SuppressLint("MissingPermission")
-    val bluetoothHfpManager = BluetoothHfpManager(
-        context = context,
-        onAudioStateChanged = { hfpState ->
-            Log.d(TAG, "BluetoothHfpManager relatou estado de áudio: $hfpState")
-            if (hfpState == HfpAudioState.AUDIO_DISCONNECTED) {
-                scoDisconnectCount++
-                recordEvent("SCO_DISCONNECTED", "Desconexão de áudio HFP reportada pelo SO")
-            }
-            if (isRunning) {
-                triggerAsyncRouteEvaluation()
-            }
-        },
-        onConnectionStateChanged = { device, state ->
-            Log.d(TAG, "BluetoothHfpManager relatou conexão física: dev=${device?.name} state=$state")
-            if (state == BluetoothProfile.STATE_DISCONNECTED) {
-                recordEvent("ACL_DISCONNECTED", "Intercom desconectado: ${device?.name}")
-            }
-            if (isRunning) {
-                triggerAsyncRouteEvaluation()
-            }
-        }
-    )
-
+    val whatsappStatus = RouterStateHolder.whatsappStatus
+    private val events = ArrayDeque<RouteEvent>()
+    private val recoveryBudget = RecoveryBudget()
+    private var engineScope: CoroutineScope? = null
+    private var evaluationJob: Job? = null
+    private var recoveryJob: Job? = null
+    private var transientRecheckJob: Job? = null
+    // BUG-14: @Volatile garante visibilidade entre a coroutine de avaliação
+    // e os callbacks de AudioRouteMonitor/BluetoothHfpManager que rodam em threads de Binder/Handler.
+    @Volatile
+    private var evaluateAgain = false
+    // BUG-15: @Volatile garante que stopEngine() seja visível imediatamente
+    // para callbacks multi-thread, evitando trigger de avaliação em engine parada.
+    @Volatile
     private var isRunning = false
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var watchdogRunnable: Runnable? = null
-
-    // Monitor contínuo de hardware de áudio com debounce e snapshots (Item 16, 70, 71)
-    private val routeMonitor = AudioRouteMonitor(context) { diff ->
+    private var startedAt = 0L
+    private var recoveryStartedAt = 0L
+    private var lastRecoveryDuration = 0L
+    var routePreparationTimeMs = 0L; private set
+    var routeLossCount = 0; private set
+    var recoveryCount = 0; private set
+    var scoDisconnectCount = 0; private set
+    var communicationDeviceChangeCount = 0; private set
+    private var transientFailureCount = 0
+    private val mediaRoutePolicy = MediaRoutePolicy()
+    private var yieldingToMedia = false
+    private var yieldingToCall = false
+    private val prefs = appContext.getSharedPreferences(com.btmicpro.receiver.BootReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+    private var selectedProfile = AudioModeProfile.fromCode(prefs.getString("audio_mode_profile", null))
+    private val scoKeepAlive = ExperimentalScoKeepAlive()
+    private var modeAttempted = false
+    private var modeRequested = false
+    private var lastTargetId: Int? = null
+    private var pendingProfileCode: String? = null
+    private val audioActivity = AudioActivityObserver(appContext) {
         if (isRunning) {
-            Log.d(TAG, "AudioRouteMonitor detectou alteração no hardware ($diff).")
-            if (diff == RouteDiffType.COMMUNICATION_CHANGED) {
-                communicationDeviceChangeCount++
-            }
+            updateRouteControl()
             triggerAsyncRouteEvaluation()
         }
     }
 
-    // Gerenciador de recuperação com backoff exponencial (Item 23, 24)
-    private val recoveryManager = RoutingRecoveryManager(
-        maxAttempts = 4,
-        backoffDelaysMs = longArrayOf(profile.routingRetryDelay, 1000L, 2000L, 4000L),
-        onAttempt = { attempt ->
-            val devName = getConnectedBluetoothName() ?: "Intercom"
-            updateState(RouterState.Recovering(BluetoothDeviceInfo(name = devName), attempt))
-            triggerAsyncRouteEvaluation()
+    val bluetoothHfpManager = BluetoothHfpManager(
+        context.applicationContext,
+        onAudioStateChanged = { state ->
+            if (isRunning) {
+                if (state == HfpAudioState.AUDIO_DISCONNECTED) {
+                    scoDisconnectCount++
+                    commDeviceManager.onLegacyScoDisconnected()
+                }
+                triggerAsyncRouteEvaluation()
+            }
         },
-        onRecoverySuccess = { durationMs ->
-            recoveryCount++
-            recordEvent("RECOVERY_SUCCESS", "Rota restabelecida com sucesso em ${durationMs}ms")
-            Log.i(TAG, "Recuperação concluída com sucesso em ${durationMs}ms.")
-        },
-        onRecoveryFailed = { reason ->
-            routeLossCount++
-            recordEvent("RECOVERY_FAILED", reason)
-            updateState(RouterState.RouteLost(reason))
-            _whatsappStatus.value = WhatsAppRouteStatus.FAILED
+        onConnectionStateChanged = { _, state ->
+            if (isRunning) {
+                if (state == BluetoothProfile.STATE_CONNECTED || state == BluetoothProfile.STATE_DISCONNECTED) {
+                    recoveryBudget.reset()
+                    recoveryJob?.cancel()
+                    recoveryJob = null
+                }
+                triggerAsyncRouteEvaluation()
+            }
         }
     )
+    private val routeMonitor = AudioRouteMonitor(context.applicationContext) { diff ->
+        if (isRunning) {
+            if (diff == RouteDiffType.COMMUNICATION_CHANGED) communicationDeviceChangeCount++
+            // Endpoint SCO removal is not a new physical connection: don't replenish retries.
+            triggerAsyncRouteEvaluation()
+        }
+    }
 
-    /**
-     * Inicia o serviço e o controle de roteamento da V5.
-     */
-    @Synchronized
     fun startEngine() {
         if (isRunning) return
         isRunning = true
-        preparationStartTime = System.currentTimeMillis()
-        Log.i(TAG, "Iniciando BluetoothRoutingEngine V5 [Perfil: ${profile.profileName}]")
-
-        recordEvent("ENGINE_START", "Iniciando controle de rota V5")
-        updateState(RouterState.Disconnected)
-        _whatsappStatus.value = WhatsAppRouteStatus.ROUTE_PREPARED
-
-        // Inicia componentes de monitoramento
+        engineScope = CoroutineScope(coroutineScope.coroutineContext + SupervisorJob(coroutineScope.coroutineContext[Job]))
+        startedAt = SystemClock.elapsedRealtime()
+        recoveryBudget.reset()
+        transientFailureCount = 0
+        setWhatsAppStatus(WhatsAppRouteStatus.UNKNOWN)
+        updateState(RouterState.WaitingDevice)
+        AppLogger.setProfile(selectedProfile.code)
+        logProfile()
         bluetoothHfpManager.start()
         routeMonitor.startMonitoring()
-
-        if (useExperimentalKeepAlive) {
-            try { scoKeepAlive.start(profile.preferredSampleRate) } catch (e: Exception) {
-                Log.e(TAG, "Erro ao iniciar keepalive experimental", e)
+        audioActivity.start()
+        updateRouteControl()
+        triggerAsyncRouteEvaluation()
+        engineScope?.launch {
+            var lastWatchdog = SystemClock.elapsedRealtime()
+            var lastHeartbeat = 0L
+            while (isRunning) {
+                delay(300)
+                updateRouteControl()
+                // A watchdog observes health; it never resets a failed recovery budget.
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastWatchdog >= 15000) {
+                    lastWatchdog = now
+                    if (!recoveryBudget.exhausted) triggerAsyncRouteEvaluation()
+                }
+                if (now - lastHeartbeat >= 30000) {
+                    lastHeartbeat = now
+                    logHeartbeat()
+                }
             }
         }
+    }
 
-        // Dispara avaliação inicial da rota
-        triggerAsyncRouteEvaluation()
+    private fun updateRouteControl() {
+        audioActivity.poll()
+        val requested = AudioModeProfile.fromCode(prefs.getString("audio_mode_profile", null))
+        if (requested != selectedProfile) {
+            if (audioActivity.recordingActive) {
+                if (pendingProfileCode != requested.code) AppLogger.i("PROFILE_PENDING", "${requested.code}; aguardando fim da captura")
+                pendingProfileCode = requested.code
+            } else {
+                cancelRouteWork()
+                scoKeepAlive.stop()
+                commDeviceManager.clearCommunicationDevice()
+                releaseAudioMode()
+                selectedProfile = requested
+                pendingProfileCode = null
+                AppLogger.setProfile(requested.code)
+                logProfile()
+                recoveryBudget.reset()
+                mediaRoutePolicy.reset()
+                yieldingToMedia = false
+                yieldingToCall = false
+                _currentRoute.value = CommunicationRoute()
+                setWhatsAppStatus(WhatsAppRouteStatus.UNKNOWN)
+                startedAt = SystemClock.elapsedRealtime()
+                updateState(RouterState.WaitingDevice)
+                triggerAsyncRouteEvaluation()
+            }
+        }
+        val musicActive = audioManager.isMusicActive
+        val recordingActive = audioActivity.recordingActive
+        val callActive = anotherAppCommunicating()
+        val yield = mediaRoutePolicy.shouldYield(
+            selectedProfile.releaseForMedia && !callActive, musicActive, recordingActive,
+            SystemClock.elapsedRealtime(), selectedProfile.mediaResumeDelayMs)
+        if (yield == yieldingToMedia && callActive == yieldingToCall) return
+        yieldingToMedia = yield
+        yieldingToCall = callActive
+        cancelRouteWork()
+        recoveryBudget.reset()
+        transientFailureCount = 0
+        if (yield || callActive) {
+            val device = BluetoothDeviceInfo(_currentRoute.value.bluetoothDeviceName ?: "Bluetooth")
+            _currentRoute.value = CommunicationRoute()
+            setWhatsAppStatus(WhatsAppRouteStatus.UNKNOWN)
+            scoKeepAlive.stop()
+            commDeviceManager.clearCommunicationDevice()
+            releaseAudioMode()
+            updateState(RouterState.RouteDegraded(device, if (yield) RouterState.MEDIA_PLAYBACK_REASON else "Outro aplicativo está usando comunicação. Aguardando liberar."))
+            AppLogger.i(TAG, "${if (yield) "MEDIA_YIELD" else "CALL_YIELD"}: musicActive=$musicActive, recordingActive=$recordingActive; solicitação liberada")
+        } else {
+            AppLogger.i(TAG, "ROUTE_RESUME: preparando microfone após mídia/comunicação")
+            triggerAsyncRouteEvaluation()
+        }
+    }
 
-        // Inicia watchdog não-destrutivo (Item 72, 73, 74, 75)
-        startSmartWatchdog()
+    private fun cancelRouteWork() {
+        evaluationJob?.cancel(); evaluationJob = null
+        recoveryJob?.cancel(); recoveryJob = null
+        transientRecheckJob?.cancel(); transientRecheckJob = null
+        transientFailureCount = 0
+    }
+
+    private fun anotherAppCommunicating(): Boolean = audioManager.mode != AudioManager.MODE_NORMAL &&
+        !(modeRequested && audioManager.mode == selectedProfile.targetAudioMode)
+
+    private fun requestAudioModeOnce() {
+        if (modeAttempted) return
+        modeAttempted = true
+        if (selectedProfile.targetAudioMode == AudioManager.MODE_NORMAL || audioManager.mode != AudioManager.MODE_NORMAL) return
+        audioManager.mode = selectedProfile.targetAudioMode
+        modeRequested = true
+        AppLogger.i("MODE_REQUEST", "solicitação única: ${selectedProfile.targetAudioMode}; sem reafirmação automática")
+    }
+
+    private fun releaseAudioMode() {
+        if (modeRequested) {
+            try { audioManager.mode = AudioManager.MODE_NORMAL }
+            catch (e: Exception) { AppLogger.e(TAG, "Falha ao liberar solicitação própria de modo", e) }
+            AppLogger.i("MODE_RELEASE", "solicitação própria removida")
+        }
+        modeRequested = false
+        modeAttempted = false
+    }
+
+    private fun logProfile() = AppLogger.i("PROFILE_APPLIED", "code=${selectedProfile.code}; mode=${selectedProfile.targetAudioMode}; " +
+        "keeper=${selectedProfile.keepAliveStrategy}; rate=${selectedProfile.keepAliveSampleRate}; bufferMs=${selectedProfile.keepAliveBufferMs}; " +
+        "yieldMedia=${selectedProfile.releaseForMedia}; resumeMs=${selectedProfile.mediaResumeDelayMs}")
+
+    private fun logHeartbeat() {
+        try {
+            val power = appContext.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val battery = appContext.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+            val current = commDeviceManager.getCurrentCommunicationDevice()
+            AppLogger.i("ROUTE_HEARTBEAT", "state=${_routerState.value.javaClass.simpleName}; mode=${audioManager.mode}; " +
+                "comm=${current?.id}/${current?.type}; hfp=${bluetoothHfpManager.hfpAudioState.value}; " +
+                "keeper=${scoKeepAlive.describe()}; music=${audioManager.isMusicActive}; capture=${audioActivity.captureSummary}; " +
+                "routeLoss=$routeLossCount; scoDisconnect=$scoDisconnectCount; recovery=$recoveryCount; " +
+                "interactive=${power.isInteractive}; idle=${power.isDeviceIdleMode}; powerSave=${power.isPowerSaveMode}; " +
+                "battery=${battery.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)}; " +
+                "mediaVolume=${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}; callVolume=${audioManager.getStreamVolume(AudioManager.STREAM_VOICE_CALL)}")
+        } catch (e: Exception) { AppLogger.e(TAG, "Falha no snapshot periódico", e) }
     }
 
     private fun triggerAsyncRouteEvaluation() {
-        coroutineScope.launch {
-            evaluateAndApplyRoute()
-        }
-    }
-
-    /**
-     * Avalia o hardware e orquestra a máquina de estados canônica de 13 estágios.
-     * Protegido por Mutex contra concorrência e condições de corrida (Item 20).
-     */
-    suspend fun evaluateAndApplyRoute() {
         if (!isRunning) return
-
-        routeMutex.withLock {
-            try {
-                // Estágio 1: Identificar Bluetooth físico conectado (Item 13)
-                val btDeviceName = getConnectedBluetoothName()
-                if (btDeviceName == null) {
-                    Log.d(TAG, "Nenhum dispositivo Bluetooth conectado detectado.")
-                    if (_routerState.value !is RouterState.Disconnected) {
-                        recordEvent("DISCONNECTED", "Nenhum fone/intercom detectado")
-                        updateState(RouterState.Disconnected)
-                    }
-                    _currentRoute.value = CommunicationRoute()
-                    recoveryManager.cancel()
-                    return
-                }
-
-                val devInfo = BluetoothDeviceInfo(
-                    name = btDeviceName,
-                    sampleRate = profile.preferredSampleRate
-                )
-
-                // Estágio 2: BLUETOOTH_CONNECTED
-                if (_routerState.value is RouterState.Disconnected) {
-                    recordEvent("BLUETOOTH_CONNECTED", "Intercom identificado: $btDeviceName")
-                    updateState(RouterState.BluetoothConnected(devInfo))
-                }
-
-                // Estágio 3: Buscar dispositivo de comunicação elegível (apenas sinks - Item 42 e 43)
-                val bestCommDevice = commDeviceManager.findBestBluetoothCommunicationDevice()
-                if (bestCommDevice == null) {
-                    Log.w(TAG, "Dispositivo conectado ($btDeviceName), mas canal de comunicação ainda não exposto.")
-                    if (_routerState.value !is RouterState.BluetoothConnected) {
-                        updateState(RouterState.BluetoothConnected(devInfo))
-                    }
-                    return
-                }
-
-                updateState(RouterState.CommunicationDeviceAvailable(devInfo))
-
-                // Estágio 4: Selecionar Communication Device com confirmação e timeout (Item 21, 22)
-                updateState(RouterState.CommunicationDeviceSelected(devInfo))
-                val isConfirmed = commDeviceManager.selectCommunicationDeviceWithConfirmation(
-                    device = bestCommDevice,
-                    timeoutMs = profile.scoConnectionTimeout
-                )
-
-                if (!isConfirmed) {
-                    Log.w(TAG, "Confirmação de setCommunicationDevice falhou ou deu timeout.")
-                    if (!recoveryManager.isRecoveryActive()) {
-                        recoveryManager.startRecovery("setCommunicationDevice não confirmado dentro do timeout")
-                    } else {
-                        recoveryManager.retry()
-                    }
-                    return
-                }
-
-                // Estágio 5 e 6: Acompanhamento de Áudio HFP real (Item 15)
-                val actualAudioState = bluetoothHfpManager.detectActualBluetoothAudioState()
-                if (actualAudioState.hfpAudioState == HfpAudioState.AUDIO_CONNECTING) {
-                    updateState(RouterState.AudioConnecting(devInfo))
-                } else if (actualAudioState.isAudioConnected) {
-                    updateState(RouterState.AudioConnected(devInfo))
-                }
-
-                // Estágio 7: Verificar disponibilidade de microfone (Input Device)
-                val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-                val btInput = inputs.find {
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-                }
-                if (btInput != null) {
-                    updateState(RouterState.InputAvailable(devInfo))
-                }
-
-                // Estágio 8: Verificar disponibilidade de alto-falante (Output Device)
-                val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                val btOutput = outputs.find {
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET) ||
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                }
-                if (btOutput != null) {
-                    updateState(RouterState.OutputAvailable(devInfo))
-                }
-
-                // Estágio 9 ou 10: Rota Bidirecional Pronta ou Degradada
-                val isBidirectionalReady = (btInput != null) && (btOutput != null)
-                val finalRoute = CommunicationRoute(
-                    inputDevice = btInput,
-                    outputDevice = btOutput,
-                    communicationDevice = bestCommDevice,
-                    bluetoothDeviceName = btDeviceName,
-                    bluetoothProfile = if (btInput?.type == AudioDeviceInfo.TYPE_BLE_HEADSET) "BLE_HEADSET" else "HFP/SCO",
-                    isBidirectionalReady = isBidirectionalReady
-                )
-                _currentRoute.value = finalRoute
-
-                if (isBidirectionalReady) {
-                    if (preparationStartTime > 0L) {
-                        routePreparationTimeMs = (System.currentTimeMillis() - preparationStartTime).coerceAtLeast(0L)
-                        preparationStartTime = 0L
-                    }
-
-                    recordEvent("ROUTE_READY", "Rota bidirecional estável confirmada ($btDeviceName)")
-                    updateState(
-                        RouterState.RouteReady(
-                            device = devInfo.copy(isScoConnected = true),
-                            sampleRate = profile.preferredSampleRate,
-                            routePreparationTimeMs = routePreparationTimeMs,
-                            audioBufferEstimateMs = (profile.preferredBufferSize * 10L),
-                            processingTimeMs = 0L,
-                            endToEndLatency = "NOT_MEASURED",
-                            route = finalRoute
-                        )
-                    )
-                    _whatsappStatus.value = WhatsAppRouteStatus.ROUTE_PREPARED
-                    recoveryManager.markSuccess()
-                } else {
-                    Log.w(TAG, "Rota incompleta (Input=${btInput != null}, Output=${btOutput != null}). Degradada.")
-                    updateState(RouterState.RouteDegraded(devInfo, "Aguardando canal bidirecional completo"))
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Exceção no ciclo de roteamento V5", e)
-                recordEvent("ERROR", e.message ?: "Erro desconhecido")
-                if (!recoveryManager.isRecoveryActive()) {
-                    recoveryManager.startRecovery("Exceção: ${e.message}")
-                } else {
-                    recoveryManager.retry()
-                }
-            }
+        evaluateAgain = true
+        if (evaluationJob?.isActive == true) return
+        evaluationJob = engineScope?.launch {
+            do {
+                evaluateAgain = false
+                evaluateAndApplyRoute()
+            } while (evaluateAgain && isRunning)
         }
     }
 
-    /**
-     * Watchdog Não-Destrutivo (Item 72, 73, 74, 75 do Prompt Master):
-     * Intervalo de 12 segundos. Se a rota estiver estável e funcional: NÃO FAZER NADA.
-     */
-    private fun startSmartWatchdog() {
-        stopSmartWatchdog()
-        watchdogRunnable = object : Runnable {
-            override fun run() {
-                if (!isRunning) return
-
-                val current = _routerState.value
-                val isBtConnected = getConnectedBluetoothName() != null
-
-                if (!isBtConnected && current !is RouterState.Disconnected) {
-                    Log.w(TAG, "Watchdog: Bluetooth desconectou fisicamente.")
-                    recordEvent("WATCHDOG_DROP", "Perda física de conexão")
-                    routeLossCount++
-                    updateState(RouterState.Disconnected)
-                } else if (isBtConnected && (current is RouterState.RouteLost || current is RouterState.Disconnected)) {
-                    Log.i(TAG, "Watchdog: Intercom detectado após perda. Reavaliando rota...")
+    suspend fun evaluateAndApplyRoute() {
+        if (!isRunning || yieldingToMedia || yieldingToCall) return
+        try {
+            coroutineContext.ensureActive()
+            val target = commDeviceManager.findBestBluetoothCommunicationDevice()
+            if (target != null && target.id != lastTargetId) {
+                lastTargetId = target.id
+                recoveryBudget.reset()
+            }
+            val name = target?.productName?.toString() ?: getConnectedBluetoothName()
+            val device = BluetoothDeviceInfo(name ?: "Intercom")
+            val current = commDeviceManager.getCurrentCommunicationDevice()
+            val legacy = Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+            val input = target?.let(commDeviceManager::findMatchingInput)
+            val targetAddress = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) target?.address.orEmpty() else ""
+            val isBle = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && target?.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+            val hfpAudioConnected = bluetoothHfpManager.isAudioConnectedFor(targetAddress)
+            val selectionMatches = commDeviceManager.hasOwnedRequest &&
+                if (legacy) hfpAudioConnected else target != null && current?.id == target.id
+            // BLE usa o perfil LE Audio, não HEADSET/HFP. Neste caminho a confirmação
+            // pública é o endpoint de comunicação selecionado com entrada correspondente.
+            val audioConnected = if (isBle) selectionMatches && input != null else hfpAudioConnected
+            val health = RouteHealth(
+                hasDevice = target != null,
+                selectionMatches = selectionMatches,
+                inputMatches = input != null,
+                audioConnected = audioConnected,
+                anotherAppCommunicating = anotherAppCommunicating()
+            )
+            // Observe short route changes without fighting Android's media transitions.
+            // Persistent failures still use the bounded recovery path below.
+            val routeWasReady = _currentRoute.value.isBidirectionalReady || transientFailureCount > 0
+            if (shouldTolerateTransientFailure(health.action(), routeWasReady, transientFailureCount)) {
+                transientFailureCount++
+                AppLogger.w(TAG, "Oscilação observada sem forçar seleção (${health.action()}, #$transientFailureCount)")
+                if (_currentRoute.value.isBidirectionalReady) routeLossCount++
+                _currentRoute.value = _currentRoute.value.copy(isBidirectionalReady = false)
+                setWhatsAppStatus(WhatsAppRouteStatus.UNKNOWN)
+                updateState(RouterState.RouteDegraded(device, "Rechecando oscilação do canal de voz"))
+                if (transientRecheckJob?.isActive != true) transientRecheckJob = engineScope?.launch {
+                    delay(300)
+                    transientRecheckJob = null
                     triggerAsyncRouteEvaluation()
-                } else if (isBtConnected && current is RouterState.RouteReady) {
-                    // SE ESTÁ TUDO OK -> NÃO TOCAR NA ROTA (Item 74, 75)
-                    // Apenas valida se o communication device ainda está atribuído
-                    val currentComm = commDeviceManager.getCurrentCommunicationDevice()
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && currentComm == null) {
-                        Log.w(TAG, "Watchdog: Dispositivo de comunicação foi desvinculado pelo SO.")
-                        recordEvent("WATCHDOG_COMM_LOST", "CommunicationDevice desvinculado")
-                        recoveryManager.startRecovery("Communication device desvinculado")
-                    }
                 }
-
-                mainHandler.postDelayed(this, 12000L)
+                return
             }
+            transientFailureCount = 0
+            if (health.action() != RouteAction.YIELD_TO_CALL && (target != null || legacy && name != null) &&
+                !recoveryBudget.exhausted && recoveryJob?.isActive != true) {
+                requestAudioModeOnce()
+                if (!scoKeepAlive.start(target, selectedProfile)) {
+                    _currentRoute.value = _currentRoute.value.copy(isBidirectionalReady = false)
+                    setWhatsAppStatus(WhatsAppRouteStatus.UNKNOWN)
+                    updateState(RouterState.RouteDegraded(device, "Falha na sustentação de áudio; tentando recuperar"))
+                    scheduleRecovery("Não foi possível sustentar a solicitação de rota")
+                    return
+                }
+            }
+            if (health.action() == RouteAction.KEEP && target != null &&
+                (!selectedProfile.useSilenceKeepAlive || scoKeepAlive.isActive())) {
+                val route = CommunicationRoute(input, target, current, name,
+                    if (target.type == AudioDeviceInfo.TYPE_BLE_HEADSET) "LE Audio" else "HFP/SCO", true)
+                _currentRoute.value = route
+                if (_routerState.value !is RouterState.RouteReady || (_routerState.value as RouterState.RouteReady).route?.outputDevice?.id != target.id) {
+                    routePreparationTimeMs = SystemClock.elapsedRealtime() - startedAt
+                    updateState(RouterState.RouteReady(device.copy(isScoConnected = true),
+                        routePreparationTimeMs = routePreparationTimeMs, route = route))
+                    setWhatsAppStatus(WhatsAppRouteStatus.ROUTE_PREPARED)
+                }
+                // Never reassert MODE_IN_COMMUNICATION from route callbacks. WhatsApp
+                // owns its own recording mode; repeated mode changes cut capture.
+                recoveryJob?.cancel(); recoveryJob = null
+                transientRecheckJob?.cancel(); transientRecheckJob = null
+                if (recoveryStartedAt > 0) {
+                    lastRecoveryDuration = SystemClock.elapsedRealtime() - recoveryStartedAt
+                    recoveryCount++
+                    recoveryStartedAt = 0
+                }
+                recoveryBudget.reset()
+                return
+            }
+            if (_currentRoute.value.isBidirectionalReady) {
+                routeLossCount++
+                recoveryBudget.reset()
+            }
+            _currentRoute.value = CommunicationRoute(inputDevice = input, outputDevice = target,
+                communicationDevice = current, bluetoothDeviceName = name, isBidirectionalReady = false)
+            setWhatsAppStatus(WhatsAppRouteStatus.UNKNOWN)
+            if (health.action() == RouteAction.YIELD_TO_CALL) {
+                recoveryJob?.cancel(); recoveryJob = null
+                scoKeepAlive.stop()
+                commDeviceManager.clearCommunicationDevice()
+                releaseAudioMode()
+                updateState(RouterState.RouteDegraded(device, "Outro aplicativo está usando comunicação. Aguardando liberar."))
+                return
+            }
+            if (name == null) {
+                recoveryJob?.cancel(); recoveryJob = null
+                recoveryBudget.reset()
+                recoveryStartedAt = 0
+                scoKeepAlive.stop()
+                releaseAudioMode()
+                lastTargetId = null
+                commDeviceManager.clearCommunicationDevice()
+                updateState(RouterState.Disconnected)
+                return
+            }
+            // Pending backoff and terminal failure may be interrupted only by a healthy route or hardware change.
+            if (recoveryJob?.isActive == true) return
+            if (recoveryBudget.exhausted && _routerState.value is RouterState.RouteLost) return
+            if (target == null && !legacy) {
+                scoKeepAlive.stop()
+                updateState(RouterState.BluetoothConnected(device))
+                scheduleRecovery("Canal de comunicação ainda indisponível")
+                return
+            }
+            // BUG-03: No Android 8-11 (API 26-30), target pode ser null porque
+            // availableCommunicationDevices não existe e getDevices(OUTPUTS) pode não listar
+            // SCO ainda. Se name != null (HFP conectado via proxy), precisamos iniciar SCO
+            // diretamente via requestLegacySco() em vez de ficar em scheduleRecovery infinito.
+            if (target == null && legacy) {
+                updateState(RouterState.CommunicationDeviceSelected(device))
+                val accepted = commDeviceManager.requestLegacySco()
+                coroutineContext.ensureActive()
+                if (!isRunning) return
+                if (!accepted) {
+                    scheduleRecovery("Android não confirmou SCO legado")
+                    return
+                }
+                evaluateAgain = true
+                updateState(RouterState.AudioConnecting(device))
+                scheduleRecovery("Aguardando confirmação de áudio SCO legado")
+                return
+            }
+            if (health.action() == RouteAction.SELECT || (legacy && !audioConnected) ||
+                (!audioConnected && recoveryBudget.attempt > 0)) {
+                updateState(RouterState.CommunicationDeviceSelected(device))
+                val accepted = if (legacy) commDeviceManager.requestLegacySco() else
+                    commDeviceManager.selectCommunicationDeviceWithConfirmation(target!!, profile.scoConnectionTimeout,
+                        forceRequest = !audioConnected)
+                coroutineContext.ensureActive()
+                if (!isRunning) return
+                if (!accepted) {
+                    scheduleRecovery("Android não confirmou o dispositivo solicitado")
+                    return
+                }
+                // Re-read after selection. Never publish RouteReady from the pre-selection snapshot.
+                evaluateAgain = true
+                updateState(RouterState.AudioConnecting(device))
+                scheduleRecovery("Aguardando confirmação de áudio Bluetooth")
+                return
+            }
+            updateState(RouterState.RouteDegraded(device, "Dispositivo selecionado; aguardando confirmação do canal de voz"))
+            scheduleRecovery("Canal bidirecional ainda não confirmado")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: SecurityException) {
+            setWhatsAppStatus(WhatsAppRouteStatus.FAILED)
+            updateState(RouterState.Error("Permissão Bluetooth indisponível. Abra o app e conceda a permissão."))
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Falha ao avaliar rota", e)
+            scheduleRecovery(e.message ?: "Falha na rota")
         }
-        mainHandler.postDelayed(watchdogRunnable!!, 12000L)
     }
 
-    private fun stopSmartWatchdog() {
-        watchdogRunnable?.let { mainHandler.removeCallbacks(it) }
-        watchdogRunnable = null
+    private fun scheduleRecovery(reason: String) {
+        if (!isRunning || recoveryJob?.isActive == true) return
+        val wait = recoveryBudget.nextDelay()
+        if (wait == null) {
+            scoKeepAlive.stop()
+            commDeviceManager.clearCommunicationDevice()
+            releaseAudioMode()
+            updateState(RouterState.RouteLost("$reason. Desligue e ligue o roteador para tentar novamente."))
+            setWhatsAppStatus(WhatsAppRouteStatus.FAILED)
+            return
+        }
+        if (recoveryStartedAt == 0L) recoveryStartedAt = SystemClock.elapsedRealtime()
+        AppLogger.i("ROUTE_RETRY", "attempt=${recoveryBudget.attempt}; delayMs=$wait; reason=$reason; capture=${audioActivity.recordingActive}")
+        recoveryJob = engineScope?.launch {
+            delay(wait)
+            recoveryJob = null
+            updateState(RouterState.Recovering(null, recoveryBudget.attempt))
+            triggerAsyncRouteEvaluation()
+        }
     }
 
-    /**
-     * Obtém o nome do dispositivo Bluetooth conectado seguindo a ordem estrita do Item 13:
-     * 1. BluetoothProfile conectado (BluetoothHfpManager)
-     * 2. availableCommunicationDevices
-     * 3. AudioManager input devices
-     * 4. Fallback output devices
-     */
     @SuppressLint("MissingPermission")
-    fun getConnectedBluetoothName(): String? {
-        // 1. BluetoothProfile conectado (HFP proxy)
-        val hfpDev = bluetoothHfpManager.connectedDevice.value ?: bluetoothHfpManager.refreshConnectedDevice()
-        if (hfpDev != null && !hfpDev.name.isNullOrBlank()) {
-            return hfpDev.name
+    fun getConnectedBluetoothName(): String? = try {
+        bluetoothHfpManager.refreshConnectedDevice()?.name
+            ?: commDeviceManager.findBestBluetoothCommunicationDevice()?.productName?.toString()
+    } catch (e: SecurityException) { null }
+
+    private fun updateState(state: RouterState) {
+        val previous = _routerState.value
+        if (previous == state) return
+        _routerState.value = state
+        RouterStateHolder.updateState(state)
+        val entry = RouteEvent(event = "STATE_CHANGED", previousState = previous.javaClass.simpleName,
+            newState = state.javaClass.simpleName, reason = when (state) {
+                is RouterState.Error -> state.message
+                is RouterState.RouteLost -> state.reason
+                is RouterState.RouteDegraded -> state.reason
+                else -> null
+            })
+        synchronized(events) {
+            if (events.size == 100) events.removeFirst()
+            events.addLast(entry)
         }
-
-        // 2. availableCommunicationDevices
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val commDev = commDeviceManager.getAvailableCommunicationDevices().find {
-                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-            }
-            if (commDev != null) {
-                return commDev.productName.toString()
-            }
-        }
-
-        // 3. AudioManager input devices
-        try {
-            val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-            val btInput = inputs.find {
-                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-            }
-            if (btInput != null) {
-                return btInput.productName.toString()
-            }
-        } catch (ignored: Exception) {}
-
-        // 4. Fallback output devices
-        try {
-            val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-            val btOutput = outputs.find {
-                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET) ||
-                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-            }
-            if (btOutput != null) {
-                return btOutput.productName.toString()
-            }
-        } catch (ignored: Exception) {}
-
-        return null
+        AppLogger.i(TAG, "${entry.previousState} -> ${entry.newState} ${entry.reason.orEmpty()}")
     }
 
-    private fun updateState(newState: RouterState) {
-        _routerState.value = newState
-        RouterStateHolder.updateState(newState)
-        AppLogger.d(TAG, "Estado da Rota atualizado: ${newState.javaClass.simpleName}")
-    }
-
-    private fun recordEvent(event: String, reason: String? = null) {
-        val prev = when (val s = _routerState.value) {
-            is RouterState.RouteReady -> "ROUTE_READY"
-            is RouterState.BluetoothConnected -> "BT_CONNECTED"
-            is RouterState.Disconnected -> "DISCONNECTED"
-            is RouterState.Recovering -> "RECOVERING"
-            is RouterState.RouteLost -> "ROUTE_LOST"
-            else -> s.javaClass.simpleName
-        }
-        val entry = RouteEvent(
-            event = event,
-            previousState = prev,
-            newState = _routerState.value.javaClass.simpleName,
-            device = getConnectedBluetoothName(),
-            reason = reason
-        )
-        synchronized(eventHistory) {
-            if (eventHistory.size >= 100) {
-                eventHistory.removeFirst()
-            }
-            eventHistory.addLast(entry)
-        }
-        AppLogger.i(TAG, "[$event] $prev -> ${_routerState.value.javaClass.simpleName}${reason?.let { " ($it)" } ?: ""}")
-    }
-
+    private fun setWhatsAppStatus(status: WhatsAppRouteStatus) = RouterStateHolder.updateWhatsAppStatus(status)
     fun markUserValidatedWhatsApp() {
-        _whatsappStatus.value = WhatsAppRouteStatus.USER_VALIDATED
-        recordEvent("USER_VALIDATION", "Usuário validou manualmente o funcionamento no WhatsApp")
+        if (_routerState.value is RouterState.RouteReady) {
+            setWhatsAppStatus(WhatsAppRouteStatus.USER_VALIDATED)
+            AppLogger.i("USER_VALIDATION", "Usuário marcou teste WhatsApp como aprovado")
+        }
     }
 
-    /**
-     * Encerra o roteamento de áudio liberando os recursos e restaurando o roteamento padrão do SO.
-     */
-    @Synchronized
     fun stopEngine() {
         if (!isRunning) return
         isRunning = false
-        Log.i(TAG, "Encerrando BluetoothRoutingEngine V5...")
-
-        recordEvent("ENGINE_STOP", "Desativação solicitada pelo usuário")
-        stopSmartWatchdog()
+        AppLogger.i("ROUTER_STOP", "routeLoss=$routeLossCount; scoDisconnect=$scoDisconnectCount; recovery=$recoveryCount")
+        yieldingToMedia = false
+        yieldingToCall = false
+        mediaRoutePolicy.reset()
+        engineScope?.cancel(); engineScope = null
+        evaluationJob = null; recoveryJob = null; evaluateAgain = false
+        transientFailureCount = 0
         routeMonitor.stopMonitoring()
-        recoveryManager.cancel()
-
-        try { scoKeepAlive.stop() } catch (ignored: Exception) {}
-        commDeviceManager.clearCommunicationDevice()
+        audioActivity.stop()
         bluetoothHfpManager.stop()
-
-        updateState(RouterState.Disconnected)
+        scoKeepAlive.stop()
+        commDeviceManager.clearCommunicationDevice()
+        releaseAudioMode()
         _currentRoute.value = CommunicationRoute()
-        _whatsappStatus.value = WhatsAppRouteStatus.UNKNOWN
+        setWhatsAppStatus(WhatsAppRouteStatus.UNKNOWN)
+        updateState(RouterState.Disconnected)
     }
 
-    /**
-     * Retorna diagnóstico canônico e completo com métricas reais (Item 47, 48, 49, 58).
-     */
     fun getFullDiagnostics(): AudioDiagnostics {
-        val modeStr = when (audioManager.mode) {
-            AudioManager.MODE_NORMAL -> "MODE_NORMAL (0)"
-            AudioManager.MODE_RINGTONE -> "MODE_RINGTONE (1)"
-            AudioManager.MODE_IN_CALL -> "MODE_IN_CALL (2)"
-            AudioManager.MODE_IN_COMMUNICATION -> "MODE_IN_COMMUNICATION (3)"
-            AudioManager.MODE_CALL_SCREENING -> "MODE_CALL_SCREENING (4)"
-            else -> "UNKNOWN (${audioManager.mode})"
-        }
-
-        val commDevStr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.communicationDevice?.let { "${it.productName} (ID=${it.id}, Tipo=${it.type})" } ?: "Nenhum"
-        } else {
-            "Não suportado (API < 31)"
-        }
-
-        val rawInputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-        val rawOutputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-
-        val inputs = rawInputs.map {
-            "${it.productName} [Tipo=${it.type}]"
-        }
-        val outputs = rawOutputs.map {
-            "${it.productName} [Tipo=${it.type}]"
-        }
-
-        val currentRouteVal = _currentRoute.value
-        val hasInput = currentRouteVal.inputDevice != null || rawInputs.any {
-            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-        }
-        val hasOutput = currentRouteVal.outputDevice != null || rawOutputs.any {
-            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET) || it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-        }
-        val isBidiReady = currentRouteVal.isBidirectionalReady || (isRunning && hasInput && hasOutput)
-
-        val hfpState = bluetoothHfpManager.detectActualBluetoothAudioState()
-
-        val stateDesc = when (val s = _routerState.value) {
-            is RouterState.RouteReady -> "ROTA PRONTA BIDIRECIONAL (${s.device.name})"
-            is RouterState.RouteDegraded -> "ROTA DEGRADADA (${s.reason})"
-            is RouterState.OutputAvailable -> "SAÍDA PRONTA (${s.device.name})"
-            is RouterState.InputAvailable -> "ENTRADA PRONTA (${s.device.name})"
-            is RouterState.AudioConnected -> "ÁUDIO HFP CONECTADO (${s.device.name})"
-            is RouterState.AudioConnecting -> "NEGOCIANDO ÁUDIO HFP (${s.device.name})"
-            is RouterState.CommunicationDeviceSelected -> "COMMUNICATION DEVICE SELECIONADO (${s.device.name})"
-            is RouterState.CommunicationDeviceAvailable -> "COMMUNICATION DEVICE DISPONÍVEL (${s.device.name})"
-            is RouterState.BluetoothConnected -> "BLUETOOTH CONECTADO (${s.device.name})"
-            is RouterState.Recovering -> "RECUPERANDO (Tentativa ${s.attempt})"
-            is RouterState.RouteLost -> "ROTA PERDIDA: ${s.reason}"
-            is RouterState.Disconnected -> if (!isRunning) "INATIVO (Aguardando ativação no botão principal)" else "DESCONECTADO"
-            is RouterState.Error -> "ERRO: ${s.message}"
-            else -> "INATIVO"
-        }
-
-        val snapshotEvents: List<RouteEvent>
-        synchronized(eventHistory) {
-            snapshotEvents = ArrayList(eventHistory)
-        }
-
+        val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+        val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        val current = commDeviceManager.getCurrentCommunicationDevice()
+        val route = _currentRoute.value
+        val hfp = bluetoothHfpManager.detectActualBluetoothAudioState()
         return AudioDiagnostics(
-            manufacturer = Build.MANUFACTURER,
-            model = Build.MODEL,
-            androidVersion = Build.VERSION.RELEASE,
-            sdk = Build.VERSION.SDK_INT,
-            build = Build.DISPLAY,
+            manufacturer = Build.MANUFACTURER, model = Build.MODEL, androidVersion = Build.VERSION.RELEASE,
+            sdk = Build.VERSION.SDK_INT, build = Build.DISPLAY,
             bluetoothDevice = getConnectedBluetoothName() ?: "Nenhum intercom conectado",
-            bluetoothProfile = currentRouteVal.bluetoothProfile ?: "Indefinido",
-            hfpAudioState = hfpState.hfpAudioState.label,
-            scoCodec = hfpState.reportedCodec,
-            communicationDevice = commDevStr,
-            audioMode = modeStr,
-            routeState = stateDesc,
-            inputAvailable = hasInput,
-            outputAvailable = hasOutput,
-            isBidirectionalReady = isBidiReady,
+            bluetoothProfile = route.bluetoothProfile ?: "Não confirmado", hfpAudioState = hfp.hfpAudioState.label,
+            scoCodec = "NOT_EXPOSED", communicationDevice = current?.let { "${it.productName} (ID=${it.id})" } ?: "Nenhum",
+            audioMode = when (audioManager.mode) {
+                AudioManager.MODE_NORMAL -> "MODE_NORMAL (0)"
+                AudioManager.MODE_IN_CALL -> "MODE_IN_CALL (2)"
+                AudioManager.MODE_IN_COMMUNICATION -> "MODE_IN_COMMUNICATION (3)"
+                else -> "${audioManager.mode}"
+            },
+            routeState = _routerState.value.javaClass.simpleName,
+            inputAvailable = route.inputDevice != null,
+            outputAvailable = route.outputDevice != null,
+            isBidirectionalReady = isRunning && route.isBidirectionalReady,
             routePreparationTimeMs = routePreparationTimeMs,
-            audioBufferEstimateMs = (profile.preferredBufferSize * 10L),
-            processingTimeMs = 0L,
-            endToEndLatency = "NOT_MEASURED",
-            routeLossCount = routeLossCount,
-            recoveryCount = recoveryCount,
-            scoDisconnectCount = scoDisconnectCount,
+            routeLossCount = routeLossCount, recoveryCount = recoveryCount, scoDisconnectCount = scoDisconnectCount,
             communicationDeviceChangeCount = communicationDeviceChangeCount,
-            lastRecoveryDurationMs = recoveryManager.lastRecoveryDurationMs,
-            scoKeepAliveState = scoKeepAlive.state.name,
-            audioFocusState = "LIVRE (Não retido pelo BT Mic Pro)",
-            whatsappStatus = _whatsappStatus.value,
-            inputDevices = inputs,
-            outputDevices = outputs,
-            recentEvents = snapshotEvents,
-            hardwareProfileName = profile.profileName
+            lastRecoveryDurationMs = lastRecoveryDuration,
+            scoKeepAliveState = scoKeepAlive.describe(), audioFocusState = "LIVRE (não solicitado)",
+            whatsappStatus = whatsappStatus.value,
+            inputDevices = inputs.map { "${it.productName} [Tipo=${it.type}, ID=${it.id}]" },
+            outputDevices = outputs.map { "${it.productName} [Tipo=${it.type}, ID=${it.id}]" },
+            recentEvents = synchronized(events) { events.toList() }, hardwareProfileName = "${profile.profileName} / ${selectedProfile.code}"
         )
     }
 
-    companion object {
-        private const val TAG = "BTMIC_ROUTING_ENGINE_V5"
-    }
+    companion object { private const val TAG = "BTMIC_ROUTING" }
 }

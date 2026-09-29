@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object RouterStateHolder {
 
+    private val _whatsappStatus = MutableStateFlow(WhatsAppRouteStatus.UNKNOWN)
+    val whatsappStatus: StateFlow<WhatsAppRouteStatus> = _whatsappStatus.asStateFlow()
+    fun updateWhatsAppStatus(status: WhatsAppRouteStatus) { _whatsappStatus.value = status }
+
     private val _routerState = MutableStateFlow<RouterState>(RouterState.Inactive)
     val routerState: StateFlow<RouterState> = _routerState.asStateFlow()
 
@@ -34,7 +38,7 @@ object RouterStateHolder {
         _isServiceRunning.value = isRunning
         if (!isRunning) {
             activeEngine = null
-            _routerState.value = RouterState.Inactive
+            _whatsappStatus.value = WhatsAppRouteStatus.UNKNOWN
         }
     }
 }

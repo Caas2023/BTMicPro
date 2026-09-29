@@ -1,267 +1,142 @@
 package com.btmicpro.core
 
 import android.content.Context
+import android.annotation.SuppressLint
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
-import android.media.MediaRecorder
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.delay
 
-/**
- * CommunicationDeviceManager — Especialista em Roteamento de Comunicação do Android Moderno (API 31+).
- *
- * Diretrizes Estritas (Itens 21, 22, 42, 43, 44, 45 do Prompt Master):
- * 1. setCommunicationDevice() recebe estritamente um dispositivo de SAÍDA/SINK. O Android seleciona
- *    a fonte correspondente automaticamente. Jamais tentar passar dispositivo de entrada.
- * 2. Busca primária realizada exclusivamente em availableCommunicationDevices.
- * 3. Confirmação com timeout (até 30s) aguardando audioManager.communicationDevice == device.
- * 4. Filtragem seletiva para ignorar mouses, teclados, relógios ou caixas de som A2DP puras.
- */
+/** Owns route requests. Never changes audio mode, focus or private capture policy. */
 @Suppress("DEPRECATION")
-class CommunicationDeviceManager(private val context: Context) {
+class CommunicationDeviceManager(context: Context) {
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var modernRequestOwned = false
+    private var legacyRequestOwned = false
+    val hasOwnedRequest: Boolean get() = modernRequestOwned || legacyRequestOwned
 
-    private val audioManager: AudioManager =
-        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-
-    /**
-     * Retorna a lista de dispositivos de comunicação elegíveis expostos pelo sistema.
-     */
-    fun getAvailableCommunicationDevices(): List<AudioDeviceInfo> {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                audioManager.availableCommunicationDevices.filter { it.isSink }
-            } catch (e: Exception) {
-                Log.e(TAG, "Falha ao obter availableCommunicationDevices", e)
-                emptyList()
-            }
+    fun getAvailableCommunicationDevices(): List<AudioDeviceInfo> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.availableCommunicationDevices.filter { it.isSink && isVoiceBluetooth(it) }
         } else {
-            emptyList()
-        }
-    }
-
-    /**
-     * Retorna o dispositivo de comunicação atualmente ativo no sistema.
-     */
-    fun getCurrentCommunicationDevice(): AudioDeviceInfo? {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                audioManager.communicationDevice
-            } catch (e: Exception) {
-                Log.e(TAG, "Falha ao consultar communicationDevice", e)
-                null
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).filter {
+                it.isSink && it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
             }
-        } else {
-            null
         }
-    }
 
-    /**
-     * Localiza o melhor dispositivo Bluetooth para comunicação de voz bidirecional.
-     *
-     * Regras (Itens 42, 43, 44, 45):
-     * - Busca somente em availableCommunicationDevices.
-     * - Exige que o dispositivo seja saída (isSink).
-     * - Filtra apenas TYPE_BLUETOOTH_SCO ou TYPE_BLE_HEADSET.
-     * - Respeita preferência do usuário (se fornecida).
-     */
+    fun getCurrentCommunicationDevice(): AudioDeviceInfo? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audioManager.communicationDevice else null
+
     fun findBestBluetoothCommunicationDevice(preferredDeviceName: String? = null): AudioDeviceInfo? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            Log.w(TAG, "Dispositivos de comunicação modernos requerem Android 12+ (API 31).")
-            return null
-        }
-
         val available = getAvailableCommunicationDevices()
-        if (available.isEmpty()) {
-            Log.d(TAG, "Nenhum dispositivo disponível em availableCommunicationDevices.")
-            return null
-        }
+        val currentId = getCurrentCommunicationDevice()?.id
+        return available.firstOrNull { !preferredDeviceName.isNullOrBlank() && it.productName.toString() == preferredDeviceName }
+            ?: available.firstOrNull { it.id == currentId }
+            ?: available.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+            ?: available.firstOrNull()
+    }
 
-        // Filtra estritamente dispositivos Bluetooth bidirecionais (SCO e BLE Headset/Speaker)
-        val eligibleDevices = available.filter { dev ->
-            val isBleCompatible = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                dev.type == AudioDeviceInfo.TYPE_BLE_HEADSET || dev.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
-            } else {
-                dev.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-            }
-            dev.isSink && (
-                dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || isBleCompatible
-            )
+    suspend fun selectCommunicationDeviceWithConfirmation(device: AudioDeviceInfo, timeoutMs: Long = 10000L,
+                                                         forceRequest: Boolean = false): Boolean {
+        if (!device.isSink || !isVoiceBluetooth(device)) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return requestLegacySco()
+        // A healthy selection must remain untouched, including after duplicate callbacks.
+        if (!forceRequest && modernRequestOwned && audioManager.communicationDevice?.id == device.id) return true
+        val accepted = audioManager.setCommunicationDevice(device)
+        AppLogger.i(TAG, "SELECT: id=${device.id}; type=${device.type}; aceito=$accepted; recuperação=$forceRequest")
+        if (!accepted) return false
+        modernRequestOwned = true
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (audioManager.communicationDevice?.id == device.id) return true
+            delay(150)
         }
-
-        if (eligibleDevices.isEmpty()) {
-            Log.w(TAG, "Nenhum dispositivo Bluetooth de comunicação elegível (apenas não-comunicação disponíveis).")
-            return null
-        }
-
-        // Se o usuário tiver um dispositivo de preferência selecionado
-        if (!preferredDeviceName.isNullOrBlank() && preferredDeviceName != "Automático") {
-            val preferred = eligibleDevices.find {
-                it.productName.toString().contains(preferredDeviceName, ignoreCase = true)
-            }
-            if (preferred != null) {
-                Log.i(TAG, "Dispositivo de preferência do usuário selecionado: ${preferred.productName}")
-                return preferred
-            }
-        }
-
-        // Prioridade 1: TYPE_BLUETOOTH_SCO (Padrão para Intercomunicadores de Moto)
-        val scoDevice = eligibleDevices.find { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
-        if (scoDevice != null) {
-            Log.d(TAG, "Melhor dispositivo encontrado (SCO Sink): ${scoDevice.productName} (ID=${scoDevice.id})")
-            return scoDevice
-        }
-
-        // Prioridade 2: TYPE_BLE_HEADSET
-        val bleDevice = eligibleDevices.find { it.type == AudioDeviceInfo.TYPE_BLE_HEADSET }
-        if (bleDevice != null) {
-            Log.d(TAG, "Melhor dispositivo encontrado (BLE Headset Sink): ${bleDevice.productName} (ID=${bleDevice.id})")
-            return bleDevice
-        }
-
-        // Prioridade 3: TYPE_BLE_SPEAKER (Android 13+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val bleSpeaker = eligibleDevices.find { it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER }
-            if (bleSpeaker != null) {
-                Log.d(TAG, "Melhor dispositivo encontrado (BLE Speaker Sink): ${bleSpeaker.productName} (ID=${bleSpeaker.id})")
-                return bleSpeaker
-            }
-        }
-
-        return null
+    // Do not clear another app's route on timeout. Recovery observes before retrying.
+        AppLogger.w(TAG, "SELECT_TIMEOUT: id=${device.id}; timeoutMs=$timeoutMs")
+        return false
     }
 
     /**
-     * Seleciona o dispositivo de comunicação e aguarda assincronamente a confirmação
-     * de que o sistema operacional realmente aplicou a seleção (Itens 21 e 22 do Prompt Master).
-     *
-     * @param device Dispositivo de comunicação (DEVE ser isSink).
-     * @param timeoutMs Tempo máximo de espera para confirmação (padrão 15 segundos, até 30s).
-     * @return true se o dispositivo foi confirmado pelo sistema; false caso contrário.
+     * Reafirma a seleção atual sem esperar confirmação e sem mexer em estado.
+     * Marca-passo para stacks instáveis (ex: MediaTek): cada oscilação do SCO
+     * é re-solicitada na hora, mas a UI, os contadores de queda e a notificação
+     * não são derrubados — a v1.5.4 recuperava rápido por reselecionar sempre;
+     * a v1.5.5 quebrou isso ao apenas ignorar. Aqui voltamos a re-solicitar
+     * de imediato, porém em silêncio.
      */
-    suspend fun selectCommunicationDeviceWithConfirmation(
-        device: AudioDeviceInfo,
-        timeoutMs: Long = 15000L
-    ): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Regra de Ouro (Item 42): NUNCA passar dispositivo de entrada para setCommunicationDevice
-            if (!device.isSink) {
-                Log.e(TAG, "VIOLAÇÃO: Dispositivo ${device.productName} não é um dispositivo de saída (isSink=false). Rejeitado.")
-                return false
-            }
-
-            try {
-                Log.i(TAG, "Solicitando setCommunicationDevice: ${device.productName} (ID=${device.id}, Tipo=${device.type})")
-                // Mantém MODE_NORMAL para que o WhatsApp não bloqueie gravação de áudio ("Não é possível gravar áudio durante chamada telefônica")
-                audioManager.mode = AudioManager.MODE_NORMAL
-                audioManager.isSpeakerphoneOn = false
-
-                val callResult = audioManager.setCommunicationDevice(device)
-                if (!callResult) {
-                    Log.w(TAG, "setCommunicationDevice() retornou false imediatamente para ${device.productName}.")
-                    return false
-                }
-
-                // Aguarda confirmação ativa do sistema (Wait for Confirmation — Item 21)
-                val startTime = System.currentTimeMillis()
-                val intervalMs = 150L
-
-                while ((System.currentTimeMillis() - startTime) < timeoutMs) {
-                    val current = getCurrentCommunicationDevice()
-                    if (current != null && (current.id == device.id || current.type == device.type)) {
-                        Log.i(TAG, "Confirmação recebida com sucesso em ${System.currentTimeMillis() - startTime}ms: ${current.productName} (audioMode=MODE_IN_COMMUNICATION)")
-                        applyPreferredCapturePreset(device)
-                        return true
-                    }
-                    delay(intervalMs)
-                }
-
-                Log.w(TAG, "Timeout de confirmação atingido (${timeoutMs}ms) sem confirmação do dispositivo ${device.productName}.")
-                clearCommunicationDevice()
-                return false
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Exceção ao selecionar communication device", e)
-                clearCommunicationDevice()
-                return false
-            }
-        } else {
-            // Android 11 ou anterior (Fallback legado controlado — Item 5 Camada C)
-            return try {
-                audioManager.mode = AudioManager.MODE_NORMAL
-                audioManager.isSpeakerphoneOn = false
-                @Suppress("DEPRECATION")
-                audioManager.startBluetoothSco()
-                @Suppress("DEPRECATION")
-                audioManager.isBluetoothScoOn = true
-                Log.i(TAG, "Fallback Legado: startBluetoothSco() disparado com MODE_NORMAL")
-                true
-            } catch (e: Exception) {
-                Log.e(TAG, "Erro no fallback legado startBluetoothSco()", e)
-                audioManager.mode = AudioManager.MODE_NORMAL
-                false
-            }
-        }
-    }
-
-    /**
-     * Limpa o dispositivo de comunicação de forma limpa e restaura o roteamento padrão do sistema.
-     */
-    fun clearCommunicationDevice() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                audioManager.clearCommunicationDevice()
-                audioManager.mode = AudioManager.MODE_NORMAL
-                audioManager.isSpeakerphoneOn = false
-                clearPreferredCapturePresets()
-                Log.i(TAG, "Communication device limpo com sucesso e audioMode restaurado para MODE_NORMAL.")
-            } catch (e: Exception) {
-                Log.e(TAG, "Erro ao limpar communication device", e)
-            }
-        } else {
-            try {
-                @Suppress("DEPRECATION")
-                audioManager.stopBluetoothSco()
-                @Suppress("DEPRECATION")
-                audioManager.isBluetoothScoOn = false
-                audioManager.mode = AudioManager.MODE_NORMAL
-                audioManager.isSpeakerphoneOn = false
-            } catch (ignored: Exception) {}
-        }
-    }
-
-    private fun applyPreferredCapturePreset(device: AudioDeviceInfo) {
-        setPreferredPreset(MediaRecorder.AudioSource.MIC, device)
-        setPreferredPreset(MediaRecorder.AudioSource.VOICE_COMMUNICATION, device)
-        setPreferredPreset(MediaRecorder.AudioSource.DEFAULT, device)
-        setPreferredPreset(MediaRecorder.AudioSource.VOICE_RECOGNITION, device)
-    }
-
-    private fun setPreferredPreset(preset: Int, device: AudioDeviceInfo): Boolean {
+    @SuppressLint("MissingPermission")
+    fun reassertCommunicationDevice(device: AudioDeviceInfo): Boolean {
+        if (!device.isSink || !isVoiceBluetooth(device)) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return requestLegacySco()
         return try {
-            val method = AudioManager::class.java.getMethod(
-                "setPreferredDeviceForCapturePreset",
-                Int::class.javaPrimitiveType,
-                AudioDeviceInfo::class.java
-            )
-            method.invoke(audioManager, preset, device) as Boolean
-        } catch (e: Exception) { false }
+            audioManager.setCommunicationDevice(device).also { accepted ->
+                if (accepted) modernRequestOwned = true
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Falha ao reafirmar rota", e)
+            false
+        }
     }
 
-    private fun clearPreferredCapturePresets() {
-        try {
-            val method = AudioManager::class.java.getMethod(
-                "clearPreferredDeviceForCapturePreset",
-                Int::class.javaPrimitiveType
-            )
-            method.invoke(audioManager, MediaRecorder.AudioSource.MIC)
-            method.invoke(audioManager, MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-            method.invoke(audioManager, MediaRecorder.AudioSource.DEFAULT)
-            method.invoke(audioManager, MediaRecorder.AudioSource.VOICE_RECOGNITION)
-        } catch (ignored: Exception) {}
+    fun requestLegacySco(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return false
+        if (!audioManager.isBluetoothScoAvailableOffCall) return false
+        // A previous request may still be owned even after SCO disconnected.
+        // Balance it before retrying so OEM stacks do not keep a stale request.
+        if (legacyRequestOwned && !audioManager.isBluetoothScoOn) {
+            audioManager.stopBluetoothSco()
+            legacyRequestOwned = false
+        }
+        if (!legacyRequestOwned) {
+            audioManager.startBluetoothSco()
+            legacyRequestOwned = true
+            audioManager.isBluetoothScoOn = true
+        }
+        return true // Request accepted; the HFP/SCO monitor confirms actual audio separately.
+    }
+
+    fun onLegacyScoDisconnected() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && legacyRequestOwned) {
+            try { audioManager.stopBluetoothSco(); audioManager.isBluetoothScoOn = false }
+            catch (e: Exception) { Log.w(TAG, "Falha ao encerrar solicitação SCO desconectada", e) }
+            finally { legacyRequestOwned = false }
+        }
+    }
+
+    fun findMatchingInput(output: AudioDeviceInfo): AudioDeviceInfo? {
+        val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).filter { it.isSource && it.type == output.type }
+        val outputAddress = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) output.address.orEmpty() else ""
+        val selected = AudioEndpoint(output.id, outputAddress, output.productName.toString())
+        val candidates = inputs.map {
+            val inputAddress = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.address.orEmpty() else ""
+            AudioEndpoint(it.id, inputAddress, it.productName.toString())
+        }
+        val outputCount = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).count { it.type == output.type }
+        val matchId = matchInputEndpoint(selected, candidates, outputCount) ?: return null
+        return inputs.firstOrNull { it.id == matchId }
+    }
+
+    fun clearCommunicationDevice() {
+        if (modernRequestOwned || legacyRequestOwned) AppLogger.i(TAG, "CLEAR: liberando solicitação própria")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (modernRequestOwned) {
+                try { audioManager.clearCommunicationDevice() }
+                catch (e: Exception) { Log.w(TAG, "Falha ao liberar seleção de comunicação", e) }
+                finally { modernRequestOwned = false }
+            }
+        } else if (legacyRequestOwned) {
+            try { audioManager.stopBluetoothSco(); audioManager.isBluetoothScoOn = false }
+            catch (e: Exception) { Log.w(TAG, "Falha ao liberar SCO", e) }
+            finally { legacyRequestOwned = false }
+        }
     }
 
     companion object {
         private const val TAG = "BTMIC_COMM_MGR"
+        fun isVoiceBluetooth(device: AudioDeviceInfo): Boolean =
+            device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && device.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
     }
 }

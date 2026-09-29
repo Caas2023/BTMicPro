@@ -102,10 +102,17 @@ class VoiceProcessingEngine(private var sampleRate: Int = 16000) {
         activePreset = preset
         frameSize = max(16, sampleRate / 100) // Bloco de 10ms
 
-        val dt = 1.0f / sampleRate
-        attackCoeff = 1.0f - exp(-dt / 0.005f) // Attack de 5ms
-        releaseCoeff = 1.0f - exp(-dt / 0.200f) // Release de 200ms
-        holdSamples = (0.120f * sampleRate).toInt() // Hold de 120ms
+        // BUG-05: Coeficientes de attack/release devem usar a duração real do BLOCO,
+        // não de uma amostra individual. Os coeficientes são aplicados 1x por bloco
+        // de frameSize amostras, então dt deve ser frameSize/sampleRate.
+        // Com dt=1/sampleRate e aplicação por bloco, a constante de tempo efetiva ficava
+        // ~160x mais lenta que o pretendido (attack de 800ms vs 5ms, release de 32s vs 200ms).
+        val blockDuration = frameSize.toFloat() / sampleRate.toFloat()
+        attackCoeff = 1.0f - exp(-blockDuration / 0.005f)   // Attack de 5ms por bloco
+        releaseCoeff = 1.0f - exp(-blockDuration / 0.200f)  // Release de 200ms por bloco
+        // FIX CORTE: hold de 120ms era curto e cortava fim de palavras / pausas naturais.
+        // 250ms dá hangover de VAD para não picotar a fala no teste local nem mascarar como "corte do WhatsApp".
+        holdSamples = (0.250f * sampleRate).toInt() // Hold de 250ms
 
         targetHighPassHz = when (preset) {
             RiderAudioPreset.NORMAL -> 100.0f
@@ -146,7 +153,7 @@ class VoiceProcessingEngine(private var sampleRate: Int = 16000) {
             // No modo Bypass/RAW, apenas protege contra estouro digital
             for (i in 0 until length) {
                 var s = buffer[i].toFloat()
-                if (abs(s) > 29205f) { // -1.0 dBFS
+                if (abs(s) > SOFT_CLIP_KNEE) {
                     s = softClip(s)
                 }
                 buffer[i] = s.coerceIn(-32768f, 32767f).toInt().toShort()
@@ -166,13 +173,15 @@ class VoiceProcessingEngine(private var sampleRate: Int = 16000) {
         }
         val voiceRmsThreshold = baseRmsThreshold + (clampedIntensity * 120.0f)
         
-        // Piso mínimo de atenuação do expansor (ex: 0.22 = -13dB, 0.15 = -16.5dB)
+        // Piso mínimo de atenuação do expansor (ex: 0.40 = -8dB, 0.30 = -10.5dB).
+        // FIX CORTE: pisos 0.15-0.18 (-15 a -16.5dB) mutavam sílabas fracas e pareciam "cortes" na gravação.
+        // Subido para 0.30-0.40 para atenuar vento sem zerar a voz. Gate agressivo demais = picote.
         val minFloorGain = when (activePreset) {
-            RiderAudioPreset.EXTREME_WIND -> 0.15f
-            RiderAudioPreset.HIGHWAY -> 0.18f
-            RiderAudioPreset.CITY -> 0.25f
-            RiderAudioPreset.NORMAL -> 0.32f
-            RiderAudioPreset.VOICE_CLARITY -> 0.28f
+            RiderAudioPreset.EXTREME_WIND -> 0.30f
+            RiderAudioPreset.HIGHWAY -> 0.30f
+            RiderAudioPreset.CITY -> 0.35f
+            RiderAudioPreset.NORMAL -> 0.40f
+            RiderAudioPreset.VOICE_CLARITY -> 0.40f
         }
 
         var index = 0
@@ -259,7 +268,7 @@ class VoiceProcessingEngine(private var sampleRate: Int = 16000) {
                 }
 
                 // 8. True Peak Brickwall Limiter (-1.0 dBFS = 29205)
-                if (abs(sample) > 29205f) {
+                if (abs(sample) > SOFT_CLIP_KNEE) {
                     sample = softClip(sample)
                 }
 
@@ -273,10 +282,11 @@ class VoiceProcessingEngine(private var sampleRate: Int = 16000) {
     private fun softClip(sample: Float): Float {
         val sign = if (sample >= 0) 1.0f else -1.0f
         val x = abs(sample)
-        val threshold = 29205f // -1.0 dBFS
-        val excess = x - threshold
-        val compressed = threshold + (excess / (1.0f + excess / 1000f))
-        return sign * min(32760f, compressed)
+        if (x <= SOFT_CLIP_KNEE) return sample
+        val kneeRange = SOFT_CLIP_CEILING - SOFT_CLIP_KNEE
+        val normalized = (x - SOFT_CLIP_KNEE) / kneeRange
+        val curved = SOFT_CLIP_KNEE + kneeRange * kotlin.math.tanh(normalized)
+        return sign * curved.coerceAtMost(SOFT_CLIP_CEILING)
     }
 
     private fun calculateHighPassBiquad(filter: BiQuad, fc: Float, q: Float, fs: Int) {
@@ -330,5 +340,10 @@ class VoiceProcessingEngine(private var sampleRate: Int = 16000) {
         currentExpanderGain = 1.0f
         detectedWindLevel = 0.0f
         agcGain = 1.0f
+    }
+
+    companion object {
+        private const val SOFT_CLIP_KNEE = 26000f
+        private const val SOFT_CLIP_CEILING = 29205f // -1 dBFS
     }
 }

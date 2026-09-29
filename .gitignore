@@ -16,6 +16,7 @@ APK/
 
 # Dependências e cache
 .gradle/
+.kotlin/
 .idea/
 *.iml
 .DS_Store

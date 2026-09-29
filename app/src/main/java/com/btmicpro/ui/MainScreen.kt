@@ -60,6 +60,8 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -88,7 +90,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.btmicpro.R
+import com.btmicpro.BuildConfig
 import com.btmicpro.core.AudioDiagnostics
+import com.btmicpro.core.AudioModeProfile
 import com.btmicpro.core.RiderAudioPreset
 import com.btmicpro.core.RouterState
 import com.btmicpro.core.WhatsAppRouteStatus
@@ -137,6 +141,7 @@ fun CleanHomeScreen(
     val mediaVolume by viewModel.mediaVolume.collectAsState()
     val callVolume by viewModel.callVolume.collectAsState()
     val isVolumeSyncEnabled by viewModel.isVolumeSyncEnabled.collectAsState()
+    val isFloatingButtonEnabled by viewModel.isFloatingButtonEnabled.collectAsState()
     val scrollState = rememberScrollState()
 
     val isRouteReady = routerState is RouterState.RouteReady || routerState is RouterState.RoutingVerified
@@ -145,14 +150,14 @@ fun CleanHomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(horizontal = 24.dp, vertical = 20.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Top Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 12.dp, bottom = 24.dp),
+                .padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -175,11 +180,12 @@ fun CleanHomeScreen(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = when {
-                        isRouteReady -> "🟢 Intercom Pronto para WhatsApp"
+                        isRouteReady -> "🟢 Rota do intercom preparada"
+                        routerState is RouterState.RouteDegraded && (routerState as RouterState.RouteDegraded).isMediaPlayback -> "🟡 Escutando mídia: microfone em espera"
                         isRouterEnabled -> "🟡 Aguardando Intercom..."
                         else -> "⚪ Sistema Desconectado"
                     },
-                    fontSize = 12.sp,
+                    fontSize = 9.sp,
                     color = if (isRouteReady) PrimaryNeon else Color.Gray,
                     fontWeight = FontWeight.Medium
                 )
@@ -202,7 +208,7 @@ fun CleanHomeScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Hero: Botão Central Principal (RouterControlCard)
         RouterControlCard(
@@ -211,7 +217,7 @@ fun CleanHomeScreen(
             onToggleRouter = { viewModel.toggleRouter(it) }
         )
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Card Informativo: Áudio Bidirecional Automático (Estilo Ligação)
         Card(
@@ -224,9 +230,7 @@ fun CleanHomeScreen(
             )
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp),
+                modifier = Modifier.fillMaxWidth().padding(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
@@ -246,7 +250,7 @@ fun CleanHomeScreen(
                 Spacer(modifier = Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (isRouteReady) "ÁUDIO BIDIRECIONAL ATIVO" else "SISTEMA EM ESPERA",
+                        text = if (isRouteReady) "ROTA DE COMUNICAÇÃO PREPARADA" else "SISTEMA EM ESPERA",
                         color = if (isRouteReady) PrimaryNeon else Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
@@ -254,19 +258,50 @@ fun CleanHomeScreen(
                     Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = if (isRouteReady) {
-                            "Tratamento Máximo Extremo: Redutor anti-vento e ganho vocal no máximo. Fones e microfone 100% livres no WhatsApp."
+                            "O Android selecionou o intercom para comunicação. Confirme com uma nota de voz no WhatsApp."
                         } else {
-                            "Ao ligar, os volumes vão ao máximo com tratamento extremo de vento e ruído. O microfone fica livre para o WhatsApp."
+                            "Ao ligar, o app solicita e monitora a rota Bluetooth sem capturar o microfone."
                         },
                         color = Color.LightGray,
-                        fontSize = 11.sp,
+                        fontSize = 9.sp,
                         lineHeight = 15.sp
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Botão de Sobrepor (Trazido das configs para ficar compacto na home)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF161616)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF282828))
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.Settings, contentDescription = null, tint = PrimaryNeon, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Column {
+                        Text("BOTÃO FLUTUANTE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        Text("Controle fora do app", color = Color.Gray, fontSize = 9.sp)
+                    }
+                }
+                Switch(
+                    checked = isFloatingButtonEnabled,
+                    onCheckedChange = { viewModel.toggleFloatingButton(it) },
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PrimaryNeon),
+                    modifier = Modifier.height(6.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         // Central de Volume Duplo (Mídia e Chamada)
         DualVolumeControlCard(
@@ -282,35 +317,17 @@ fun CleanHomeScreen(
             onToggleSync = { viewModel.setVolumeSyncEnabled(it) }
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // Botão de Configurações & Logs
-        Button(
-            onClick = onOpenSettings,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF202020)),
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = null,
-                tint = PrimaryNeon,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Configurações & Flight Recorder",
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
+        // BOTAO REMOVIDO A PEDIDO DO USUARIO
+        // Para entrar nas configurações futuramente, pode-se implementar um clique longo na versão.
 
-        Spacer(modifier = Modifier.height(16.dp))
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "BT Mic Pro v1.5.0 • Modo Piloto Ultra-Clean",
-            fontSize = 10.sp,
+            text = "BT Mic Pro v${BuildConfig.VERSION_NAME} • Modo Piloto",
+            fontSize = 9.sp,
             color = Color.DarkGray
         )
     }
@@ -332,6 +349,8 @@ fun SettingsScreen(
     val barBoostLevel by viewModel.barBoostLevel.collectAsState()
     val isFloatingButtonEnabled by viewModel.isFloatingButtonEnabled.collectAsState()
     val selectedPreset by viewModel.selectedPreset.collectAsState()
+    val isLiveMonitorEnabled by viewModel.isLiveMonitorEnabled.collectAsState()
+    val liveMonitorError by viewModel.liveMonitorError.collectAsState()
     val whatsappStatus by viewModel.whatsappStatus.collectAsState()
     val logsList by viewModel.logsList.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
@@ -360,7 +379,7 @@ fun SettingsScreen(
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = PrimaryNeon)
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "Configurações & Diagnósticos",
                 color = Color.White,
@@ -376,14 +395,14 @@ fun SettingsScreen(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF141414)),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(6.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("📋 FLIGHT RECORDER (LOGS)", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    Text("${logsList.size} eventos", color = Color.Gray, fontSize = 10.sp)
+                    Text("📋 FLIGHT RECORDER (LOGS)", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                    Text("${logsList.size} recentes", color = Color.Gray, fontSize = 9.sp)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -391,7 +410,7 @@ fun SettingsScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp)
+                        .height(100.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color(0xFF0C0C0C))
                         .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
@@ -433,7 +452,7 @@ fun SettingsScreen(
                     Button(
                         onClick = {
                             viewModel.copyAllLogs(context)
-                            Toast.makeText(context, "Todos os logs foram copiados!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Logs recentes copiados. Use Exportar ZIP para todos os dias.", Toast.LENGTH_SHORT).show()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242424)),
                         shape = RoundedCornerShape(6.dp),
@@ -441,7 +460,7 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(12.dp), tint = PrimaryNeon)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Copiar", fontSize = 10.sp, color = Color.White)
+                        Text("Copiar", fontSize = 9.sp, color = Color.White)
                     }
                     Button(
                         onClick = { viewModel.shareLogs(context) },
@@ -451,7 +470,7 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(12.dp), tint = PrimaryNeon)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("WhatsApp", fontSize = 10.sp, color = Color.White)
+                        Text("Exportar ZIP", fontSize = 9.sp, color = Color.White)
                     }
                     Button(
                         onClick = {
@@ -464,13 +483,20 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(12.dp), tint = AccentRed)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Limpar", fontSize = 10.sp, color = Color.White)
+                        Text("Limpar", fontSize = 9.sp, color = Color.White)
                     }
+                }
+                Text(com.btmicpro.core.AppLogger.storageStatus(), color = Color.Gray, fontSize = 9.sp)
+                TextButton(onClick = {
+                    viewModel.markAudioProblem()
+                    Toast.makeText(context, "Falha marcada nos logs com horário e modo", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("Marcar corte/falha agora", color = WarningAmber, fontSize = 11.sp)
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // 2. DIAGNÓSTICO DO HARDWARE & ROTA V5
         Button(
@@ -480,16 +506,16 @@ fun SettingsScreen(
             shape = RoundedCornerShape(10.dp)
         ) {
             Icon(Icons.Default.Assessment, contentDescription = null, tint = PrimaryNeon)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("ABRIR DIAGNÓSTICO DE HARDWARE V5 🛠️", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("ABRIR DIAGNÓSTICO DE HARDWARE V5 🛠️", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // 3. STATUS DA ROTA
         StatusTelemetryCard(routerState = routerState, whatsappStatus = whatsappStatus)
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // 4. PRESETS DO MOTOCICLISTA
         Card(
@@ -498,17 +524,17 @@ fun SettingsScreen(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color.DarkGray)
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(6.dp)) {
                 Text(
                     "PERFIL DE TRATAMENTO DE ÁUDIO 🏍️",
                     color = PrimaryNeon,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
+                    fontSize = 9.sp
                 )
                 Text(
                     selectedPreset.description,
                     color = Color.Gray,
-                    fontSize = 11.sp,
+                    fontSize = 9.sp,
                     modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
                 )
 
@@ -520,7 +546,7 @@ fun SettingsScreen(
                         FilterChip(
                             selected = selectedPreset == preset,
                             onClick = { viewModel.setRiderPreset(preset) },
-                            label = { Text(preset.displayName, fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            label = { Text(preset.displayName, fontSize = 9.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = PrimaryNeon,
                                 selectedLabelColor = Color.Black,
@@ -538,7 +564,7 @@ fun SettingsScreen(
                         FilterChip(
                             selected = selectedPreset == preset,
                             onClick = { viewModel.setRiderPreset(preset) },
-                            label = { Text(preset.displayName, fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                            label = { Text(preset.displayName, fontSize = 9.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = PrimaryNeon,
                                 selectedLabelColor = Color.Black,
@@ -551,7 +577,7 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // 4.5 TESTE DE RETORNO DO MICROFONE (SIDETONE OPCIONAL)
         val returnVolume by viewModel.returnVolume.collectAsState()
@@ -561,25 +587,25 @@ fun SettingsScreen(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(6.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Volume de Retorno (Sidetone de Teste)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Padrão: 0% (Mudo recomendado para pilotar sem eco)", color = Color.Gray, fontSize = 10.sp)
+                        Text("Volume de Retorno (Sidetone de Teste)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        Text("Padrão: 0% (Mudo recomendado para pilotar sem eco)", color = Color.Gray, fontSize = 9.sp)
                     }
                     Text(
                         text = if (returnVolume <= 0.01f) "0% (Mudo)" else "${(returnVolume * 100).toInt()}%",
-                        fontSize = 12.sp,
+                        fontSize = 9.sp,
                         color = if (returnVolume <= 0.01f) PrimaryNeon else WarningAmber,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
                 Slider(
                     value = returnVolume,
@@ -592,19 +618,51 @@ fun SettingsScreen(
                     )
                 )
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Teste local estilo Safe Headphones", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text(
+                            "Captura, trata e reproduz o microfone somente dentro do BT Mic Pro. Desative antes de usar o WhatsApp.",
+                            color = Color.Gray,
+                            fontSize = 10.sp
+                        )
+                    }
+                    Switch(
+                        checked = isLiveMonitorEnabled,
+                        onCheckedChange = { viewModel.toggleLiveMonitor(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = PrimaryNeon
+                        )
+                    )
+                }
+
+                liveMonitorError?.let { error ->
+                    Text(
+                        text = error,
+                        color = AccentRed,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+
                 Text(
                     text = if (returnVolume <= 0.01f) {
-                        "🔇 Em 0%: Os alto-falantes do capacete ficam 100% livres para áudios do WhatsApp e chamadas."
+                        "🔇 Em 0%: o teste captura para diagnóstico, mas não reproduz retorno."
                     } else {
-                        "🔊 Retorno audível ativo: Use apenas temporariamente para testar o microfone."
+                        "🔊 Retorno audível: use temporariamente para testar o microfone; pode haver latência Bluetooth."
                     },
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
                     color = Color.LightGray
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // 5. AJUSTES DO SISTEMA
         Card(
@@ -613,8 +671,8 @@ fun SettingsScreen(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text("⚙️ AJUSTES DO SISTEMA", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Column(modifier = Modifier.padding(6.dp)) {
+                Text("⚙️ AJUSTES DO SISTEMA", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 9.sp)
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Row(
@@ -623,8 +681,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Iniciar com o Celular", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Liga automaticamente ao reiniciar", color = Color.Gray, fontSize = 10.sp)
+                        Text("Iniciar com o Celular", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        Text("Liga automaticamente ao reiniciar", color = Color.Gray, fontSize = 9.sp)
                     }
                     Switch(
                         checked = autoStartOnBoot,
@@ -646,8 +704,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Botão Flutuante Sobreposto", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Controle rápido sobre o WhatsApp", color = Color.Gray, fontSize = 10.sp)
+                        Text("Botão Flutuante Sobreposto", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        Text("Controle rápido sobre o WhatsApp", color = Color.Gray, fontSize = 9.sp)
                     }
                     Switch(
                         checked = isFloatingButtonEnabled,
@@ -669,8 +727,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("RAW Audio Mode", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Bypass de filtros DSP", color = Color.Gray, fontSize = 10.sp)
+                        Text("RAW Audio Mode", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        Text("Bypass de filtros DSP", color = Color.Gray, fontSize = 9.sp)
                     }
                     Switch(
                         checked = isRawAudioMode,
@@ -692,8 +750,8 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Modo Bar 🔊", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Aumenta o volume dos áudios recebidos", color = Color.Gray, fontSize = 10.sp)
+                        Text("Modo Bar 🔊", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        Text("Aumenta o volume dos áudios recebidos", color = Color.Gray, fontSize = 9.sp)
                     }
                     Switch(
                         checked = isBarModeEnabled,
@@ -708,8 +766,8 @@ fun SettingsScreen(
                 }
 
                 if (isBarModeEnabled) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text("Ganho Extra: +${(barBoostLevel * 8 / 100)} dB", color = Color.LightGray, fontSize = 10.sp)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("Ganho Extra: +${(barBoostLevel * 8 / 100)} dB", color = Color.LightGray, fontSize = 9.sp)
                     Slider(
                         value = barBoostLevel.toFloat(),
                         onValueChange = { viewModel.setBarBoostLevel(it.toInt()) },
@@ -724,7 +782,142 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 6. MODO DE ÁUDIO & COMPATIBILIDADE (TESTE DE MODOS)
+        var showAudioModeDialog by remember { mutableStateOf(false) }
+        val currentAudioMode by viewModel.audioModeProfile.collectAsState()
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showAudioModeDialog = true },
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
+        ) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = "Modo de áudio",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Se o app não funcionar, tente um modo diferente",
+                            color = Color.Gray,
+                            fontSize = 9.sp
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF2B2B2B)
+                    ) {
+                        Text(
+                            text = currentAudioMode.title,
+                            color = PrimaryNeon,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        if (showAudioModeDialog) {
+            AlertDialog(
+                onDismissRequest = { showAudioModeDialog = false },
+                title = {
+                    Text(
+                        text = "Selecionar modo",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        AudioModeProfile.values().forEach { profile ->
+                            val isSelected = currentAudioMode == profile
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        viewModel.setAudioModeProfile(profile)
+                                        showAudioModeDialog = false
+                                    },
+                                color = if (isSelected) Color(0xFF252525) else Color.Transparent,
+                                border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, PrimaryNeon.copy(alpha = 0.5f)) else null,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = {
+                                            viewModel.setAudioModeProfile(profile)
+                                            showAudioModeDialog = false
+                                        },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = PrimaryNeon,
+                                            unselectedColor = Color.Gray
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Column {
+                                        Text(
+                                            text = profile.title,
+                                            color = if (isSelected) PrimaryNeon else Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                        Text(
+                                            text = profile.subtitle,
+                                            color = Color.LightGray,
+                                            fontSize = 9.sp
+                                        )
+                                        Text(
+                                            text = profile.details,
+                                            color = Color.Gray,
+                                            fontSize = 8.sp,
+                                            lineHeight = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showAudioModeDialog = false }) {
+                        Text("Cancelar", color = Color.LightGray, fontSize = 11.sp)
+                    }
+                },
+                containerColor = Color(0xFF1E1E1E),
+                shape = RoundedCornerShape(14.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
     }
 
     // Modal de Diagnóstico
@@ -773,7 +966,13 @@ fun StatusTelemetryCard(
     routerState: RouterState,
     whatsappStatus: WhatsAppRouteStatus
 ) {
-    val isBtConnected = routerState !is RouterState.Disconnected
+    val isBtConnected = when (routerState) {
+        is RouterState.BluetoothConnected, is RouterState.CommunicationDeviceAvailable,
+        is RouterState.CommunicationDeviceSelected, is RouterState.AudioConnecting,
+        is RouterState.AudioConnected, is RouterState.InputAvailable, is RouterState.OutputAvailable,
+        is RouterState.RouteReady, is RouterState.RouteDegraded, is RouterState.RoutingVerified -> true
+        else -> false
+    }
     val isRouteReady = routerState is RouterState.RouteReady || routerState is RouterState.RoutingVerified
 
     Card(
@@ -782,62 +981,62 @@ fun StatusTelemetryCard(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF141414)),
         border = androidx.compose.foundation.BorderStroke(1.dp, if (isRouteReady) PrimaryNeon else Color.DarkGray)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(6.dp)) {
             Text(
                 "STATUS DA ROTA DE COMUNICAÇÃO V5 📡",
                 color = PrimaryNeon,
                 fontWeight = FontWeight.Bold,
-                fontSize = 12.sp
+                fontSize = 9.sp
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Bluetooth:", fontSize = 11.sp, color = Color.Gray)
-                Text(if (isBtConnected) "CONECTADO" else "DESCONECTADO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isBtConnected) PrimaryNeon else Color.Gray)
+                Text("Bluetooth:", fontSize = 9.sp, color = Color.Gray)
+                Text(if (isBtConnected) "CONECTADO" else "DESCONECTADO", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (isBtConnected) PrimaryNeon else Color.Gray)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Intercom:", fontSize = 11.sp, color = Color.Gray)
-                Text(if (isBtConnected) "DETECTADO" else "NÃO DETECTADO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isBtConnected) PrimaryNeon else Color.Gray)
+                Text("Intercom:", fontSize = 9.sp, color = Color.Gray)
+                Text(if (isBtConnected) "DETECTADO" else "NÃO DETECTADO", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (isBtConnected) PrimaryNeon else Color.Gray)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Comunicação:", fontSize = 11.sp, color = Color.Gray)
-                Text(if (isRouteReady) "ATIVA" else "INATIVA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isRouteReady) PrimaryNeon else Color.Gray)
+                Text("Comunicação:", fontSize = 9.sp, color = Color.Gray)
+                Text(if (isRouteReady) "ATIVA" else "INATIVA", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (isRouteReady) PrimaryNeon else Color.Gray)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Entrada (Mic):", fontSize = 11.sp, color = Color.Gray)
-                Text(if (isRouteReady) "BLUETOOTH" else "NÃO VERIFICÁVEL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isRouteReady) PrimaryNeon else WarningAmber)
+                Text("Entrada (Mic):", fontSize = 9.sp, color = Color.Gray)
+                Text(if (isRouteReady) "BT DISPONÍVEL" else "NÃO CONFIRMADA", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (isRouteReady) PrimaryNeon else WarningAmber)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Saída (Fone):", fontSize = 11.sp, color = Color.Gray)
-                Text(if (isRouteReady) "BLUETOOTH" else "NÃO VERIFICÁVEL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (isRouteReady) PrimaryNeon else WarningAmber)
+                Text("Saída (Fone):", fontSize = 9.sp, color = Color.Gray)
+                Text(if (isRouteReady) "BT DISPONÍVEL" else "NÃO CONFIRMADA", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (isRouteReady) PrimaryNeon else WarningAmber)
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Rota Central:", fontSize = 11.sp, color = Color.Gray)
+                Text("Rota Central:", fontSize = 9.sp, color = Color.Gray)
                 Text(
                     when (routerState) {
                         is RouterState.RouteReady, is RouterState.RoutingVerified -> "ROTA PRONTA"
                         is RouterState.AudioConnected -> "ÁUDIO HFP PRONTO"
                         is RouterState.AudioConnecting -> "NEGOCIANDO HFP"
-                        is RouterState.RouteDegraded -> "DEGRADADA"
+                        is RouterState.RouteDegraded -> if (routerState.isMediaPlayback) "ESCUTANDO MÍDIA" else "DEGRADADA"
                         is RouterState.Recovering -> "RECUPERANDO"
                         is RouterState.RouteLost, is RouterState.RoutingLost -> "PERDIDA"
                         is RouterState.Disconnected -> "DESCONECTADA"
                         else -> "PREPARANDO"
                     },
-                    fontSize = 11.sp,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (isRouteReady) PrimaryNeon else WarningAmber
                 )
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("WhatsApp:", fontSize = 11.sp, color = Color.Gray)
-                Text(whatsappStatus.label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (whatsappStatus == WhatsAppRouteStatus.USER_VALIDATED) PrimaryNeon else Color.LightGray)
+                Text("WhatsApp:", fontSize = 9.sp, color = Color.Gray)
+                Text(whatsappStatus.label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (whatsappStatus == WhatsAppRouteStatus.USER_VALIDATED) PrimaryNeon else Color.LightGray)
             }
 
             if (routerState is RouterState.RouteReady && routerState.routePreparationTimeMs > 0L) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Preparo de Rota:", fontSize = 11.sp, color = Color.Gray)
-                    Text("${routerState.routePreparationTimeMs} ms", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = PrimaryNeon)
+                    Text("Preparo de Rota:", fontSize = 9.sp, color = Color.Gray)
+                    Text("${routerState.routePreparationTimeMs} ms", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = PrimaryNeon)
                 }
             }
         }
@@ -871,49 +1070,51 @@ fun AudioDiagnosticsDialogV5(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
-                Text("📱 DISPOSITIVO & HARDWARE", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
-                Text("Modelo: ${data.model} (${data.manufacturer})", fontSize = 11.sp, color = Color.LightGray)
-                Text("Android: ${data.androidVersion} (SDK ${data.sdk})", fontSize = 11.sp, color = Color.LightGray)
-                Text("Perfil: ${data.hardwareProfileName}", fontSize = 11.sp, color = PrimaryNeon)
+                Text("📱 DISPOSITIVO & HARDWARE", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 9.sp)
+                Text("Modelo: ${data.model} (${data.manufacturer})", fontSize = 9.sp, color = Color.LightGray)
+                Text("Android: ${data.androidVersion} (SDK ${data.sdk})", fontSize = 9.sp, color = Color.LightGray)
+                Text("Perfil: ${data.hardwareProfileName}", fontSize = 9.sp, color = PrimaryNeon)
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("🎧 BLUETOOTH & INTERCOM", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
-                Text("Dispositivo: ${data.bluetoothDevice}", fontSize = 11.sp, color = Color.LightGray)
-                Text("Perfil BT: ${data.bluetoothProfile}", fontSize = 11.sp, color = Color.LightGray)
-                Text("HFP Audio: ${data.hfpAudioState}", fontSize = 11.sp, color = PrimaryNeon)
-                Text("SCO Codec: ${data.scoCodec}", fontSize = 11.sp, color = Color.LightGray)
+                Text("🎧 BLUETOOTH & INTERCOM", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 9.sp)
+                Text("Dispositivo: ${data.bluetoothDevice}", fontSize = 9.sp, color = Color.LightGray)
+                Text("Perfil BT: ${data.bluetoothProfile}", fontSize = 9.sp, color = Color.LightGray)
+                Text("HFP Audio: ${data.hfpAudioState}", fontSize = 9.sp, color = PrimaryNeon)
+                Text("SCO Codec: ${data.scoCodec}", fontSize = 9.sp, color = Color.LightGray)
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("🔄 ROTA DE COMUNICAÇÃO ANDROID", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
-                Text("CommDevice: ${data.communicationDevice}", fontSize = 11.sp, color = Color.LightGray)
-                Text("Modo de Áudio: ${data.audioMode}", fontSize = 11.sp, color = Color.LightGray)
-                Text("Estado Central: ${data.routeState}", fontSize = 11.sp, color = PrimaryNeon)
-                Text("Entrada BT: ${if (data.inputAvailable) "DISPONÍVEL" else "NÃO DISPONÍVEL"}", fontSize = 11.sp, color = if (data.inputAvailable) PrimaryNeon else WarningAmber)
-                Text("Saída BT: ${if (data.outputAvailable) "DISPONÍVEL" else "NÃO DISPONÍVEL"}", fontSize = 11.sp, color = if (data.outputAvailable) PrimaryNeon else WarningAmber)
-                Text("Bidirecional: ${if (data.isBidirectionalReady) "SIM (CONFIRMADO)" else "NÃO"}", fontSize = 11.sp, color = if (data.isBidirectionalReady) PrimaryNeon else WarningAmber)
+                Text("🔄 ROTA DE COMUNICAÇÃO ANDROID", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 9.sp)
+                Text("CommDevice: ${data.communicationDevice}", fontSize = 9.sp, color = Color.LightGray)
+                Text("Modo de Áudio: ${data.audioMode}", fontSize = 9.sp, color = Color.LightGray)
+                Text("Estado Central: ${data.routeState}", fontSize = 9.sp, color = PrimaryNeon)
+                Text("Entrada BT: ${if (data.inputAvailable) "DISPONÍVEL" else "NÃO DISPONÍVEL"}", fontSize = 9.sp, color = if (data.inputAvailable) PrimaryNeon else WarningAmber)
+                Text("Saída BT: ${if (data.outputAvailable) "DISPONÍVEL" else "NÃO DISPONÍVEL"}", fontSize = 9.sp, color = if (data.outputAvailable) PrimaryNeon else WarningAmber)
+                Text("Rota preparada: ${if (data.isBidirectionalReady) "SIM (instantâneo Android)" else "NÃO"}", fontSize = 9.sp, color = if (data.isBidirectionalReady) PrimaryNeon else WarningAmber)
+                Text("Keep-alive: ${data.scoKeepAliveState}", fontSize = 9.sp, color = Color.LightGray)
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("⏱️ TEMPOS E MÉTRICAS REAIS", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
-                Text("Preparo de Rota: ${data.routePreparationTimeMs} ms", fontSize = 11.sp, color = Color.LightGray)
-                Text("Buffer Estimado: ${data.audioBufferEstimateMs} ms", fontSize = 11.sp, color = Color.LightGray)
-                Text("Latência Fim-a-Fim: ${data.endToEndLatency}", fontSize = 11.sp, color = Color.LightGray)
+                Text("⏱️ TEMPOS E MÉTRICAS REAIS", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 9.sp)
+                Text("Preparo de Rota: ${data.routePreparationTimeMs} ms", fontSize = 9.sp, color = Color.LightGray)
+                Text("Buffer Estimado: ${data.audioBufferEstimateMs} ms", fontSize = 9.sp, color = Color.LightGray)
+                Text("Latência Fim-a-Fim: ${data.endToEndLatency}", fontSize = 9.sp, color = Color.LightGray)
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("📊 ESTABILIDADE & CONTADORES DE QUEDAS", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
-                Text("Quedas de Rota: ${data.routeLossCount}", fontSize = 11.sp, color = if (data.routeLossCount == 0) PrimaryNeon else WarningAmber)
-                Text("Recuperações: ${data.recoveryCount}", fontSize = 11.sp, color = Color.LightGray)
-                Text("Desconexões SCO: ${data.scoDisconnectCount}", fontSize = 11.sp, color = Color.LightGray)
-                Text("Trocas CommDevice: ${data.communicationDeviceChangeCount}", fontSize = 11.sp, color = Color.LightGray)
+                Text("📊 ESTABILIDADE & CONTADORES DE QUEDAS", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 9.sp)
+                Text("Quedas de Rota: ${data.routeLossCount}", fontSize = 9.sp, color = if (data.routeLossCount == 0) PrimaryNeon else WarningAmber)
+                Text("Recuperações: ${data.recoveryCount}", fontSize = 9.sp, color = Color.LightGray)
+                Text("Desconexões SCO: ${data.scoDisconnectCount}", fontSize = 9.sp, color = Color.LightGray)
+                Text("Trocas CommDevice: ${data.communicationDeviceChangeCount}", fontSize = 9.sp, color = Color.LightGray)
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("💬 WHATSAPP STATUS", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
-                Text("Status: ${data.whatsappStatus.label}", fontSize = 11.sp, color = PrimaryNeon)
+                Text("💬 WHATSAPP STATUS", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 9.sp)
+                Text("Status: ${data.whatsappStatus.label}", fontSize = 9.sp, color = PrimaryNeon)
 
                 Spacer(modifier = Modifier.height(10.dp))
-                Text("📋 FLIGHT RECORDER (LOGS EM TEMPO REAL)", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
-                Text("Total registrado: ${logs.size} eventos", fontSize = 10.sp, color = PrimaryNeon)
+                Text("📋 FLIGHT RECORDER (LOGS EM TEMPO REAL)", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 9.sp)
+                Text("Memória recente: ${logs.size} eventos", fontSize = 9.sp, color = PrimaryNeon)
+                Text(com.btmicpro.core.AppLogger.storageStatus(), fontSize = 9.sp, color = Color.LightGray)
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -950,7 +1151,7 @@ fun AudioDiagnosticsDialogV5(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -963,7 +1164,7 @@ fun AudioDiagnosticsDialogV5(
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(12.dp), tint = PrimaryNeon)
                         Spacer(modifier = Modifier.width(3.dp))
-                        Text("Copiar Logs", fontSize = 10.sp, color = Color.White)
+                        Text("Recentes", fontSize = 9.sp, color = Color.White)
                     }
                     Button(
                         onClick = onShareLogs,
@@ -973,7 +1174,7 @@ fun AudioDiagnosticsDialogV5(
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(12.dp), tint = PrimaryNeon)
                         Spacer(modifier = Modifier.width(3.dp))
-                        Text("WhatsApp", fontSize = 10.sp, color = Color.White)
+                        Text("Exportar ZIP", fontSize = 9.sp, color = Color.White)
                     }
                     Button(
                         onClick = onClearLogs,
@@ -983,7 +1184,7 @@ fun AudioDiagnosticsDialogV5(
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(12.dp), tint = AccentRed)
                         Spacer(modifier = Modifier.width(3.dp))
-                        Text("Limpar", fontSize = 10.sp, color = Color.White)
+                        Text("Limpar", fontSize = 9.sp, color = Color.White)
                     }
                 }
 
@@ -1000,7 +1201,7 @@ fun AudioDiagnosticsDialogV5(
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp), tint = PrimaryNeon)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Copiar TXT", fontSize = 10.sp, color = Color.White)
+                        Text("Copiar TXT", fontSize = 9.sp, color = Color.White)
                     }
                     Button(
                         onClick = onCopyJson,
@@ -1010,7 +1211,7 @@ fun AudioDiagnosticsDialogV5(
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp), tint = PrimaryNeon)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Copiar JSON", fontSize = 10.sp, color = Color.White)
+                        Text("Copiar JSON", fontSize = 9.sp, color = Color.White)
                     }
                 }
 
@@ -1023,7 +1224,7 @@ fun AudioDiagnosticsDialogV5(
                 ) {
                     Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp), tint = PrimaryNeon)
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Marcar: Testado no WhatsApp", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Marcar: Testado no WhatsApp", fontSize = 9.sp, color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
         },
@@ -1048,6 +1249,7 @@ fun RouterControlCard(
     onToggleRouter: (Boolean) -> Unit
 ) {
     val isVerified = routerState is RouterState.RouteReady || routerState is RouterState.RoutingVerified || routerState is RouterState.ScoActive || routerState is RouterState.RoutingActive
+    val isMediaPlayback = routerState is RouterState.RouteDegraded && routerState.isMediaPlayback
     val deviceName = when (routerState) {
         is RouterState.RouteReady -> routerState.device.name
         is RouterState.RoutingVerified -> routerState.device.name
@@ -1066,6 +1268,7 @@ fun RouterControlCard(
         targetValue = when {
             !isRouterEnabled -> Color.Gray
             isVerified -> PrimaryNeon
+            isMediaPlayback -> WarningAmber
             routerState is RouterState.WaitingDevice || routerState is RouterState.Recovering || routerState is RouterState.BluetoothConnected || routerState is RouterState.CommunicationDeviceAvailable -> WarningAmber
             else -> AccentRed
         },
@@ -1122,7 +1325,7 @@ fun RouterControlCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1135,10 +1338,11 @@ fun RouterControlCard(
                 tint = statusColor,
                 modifier = Modifier.size(24.dp)
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = when {
                     !isRouterEnabled -> "DESATIVADO - Toque para ativar"
+                    isMediaPlayback -> "ESCUTANDO MÍDIA - Microfone em espera"
                     routerState is RouterState.RouteReady -> "ROTA PRONTA: $deviceName"
                     routerState is RouterState.RoutingVerified -> "ROTA PRONTA: $deviceName"
                     routerState is RouterState.OutputAvailable -> "SAÍDA PRONTA: $deviceName"
@@ -1158,9 +1362,9 @@ fun RouterControlCard(
                 color = statusColor
             )
         }
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
-            text = if (isRouterEnabled) "Rota Bidirecional WhatsApp ↔ Intercom Ativa" else "Ative para manter a comunicação pelo capacete",
+            text = if (isRouterEnabled) "Solicitando rota de comunicação do intercom" else "Ative para preparar a comunicação pelo capacete",
             style = MaterialTheme.typography.bodySmall,
             color = Color.Gray,
             modifier = Modifier.padding(horizontal = 16.dp),
@@ -1197,9 +1401,7 @@ fun DualVolumeControlCard(
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF282828))
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp)
+            modifier = Modifier.fillMaxWidth().padding(6.dp)
         ) {
             // Cabeçalho da Central de Volumes
             Row(
@@ -1212,14 +1414,14 @@ fun DualVolumeControlCard(
                         imageVector = Icons.Default.GraphicEq,
                         contentDescription = null,
                         tint = PrimaryNeon,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "VOLUME DUPLO",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
+                        fontSize = 9.sp,
                         letterSpacing = 0.5.sp
                     )
                 }
@@ -1228,7 +1430,7 @@ fun DualVolumeControlCard(
                     Text(
                         text = if (isSyncEnabled) "Sincronizado" else "Separado",
                         color = if (isSyncEnabled) PrimaryNeon else Color.Gray,
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -1241,21 +1443,12 @@ fun DualVolumeControlCard(
                             uncheckedThumbColor = Color.Gray,
                             uncheckedTrackColor = Color(0xFF222222)
                         ),
-                        modifier = Modifier.height(24.dp)
+                        modifier = Modifier.height(6.dp)
                     )
                 }
             }
 
-            Text(
-                text = if (isSyncEnabled) {
-                    "As teclas laterais do celular aumentam/diminuem Mídia e Chamada juntas na moto."
-                } else {
-                    "Ajuste independente para o som de Mídia e voz de Chamada."
-                },
-                color = Color.Gray,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)
-            )
+Spacer(modifier = Modifier.height(2.dp))
 
             // 🎵 Canal 1: Volume de Mídia (WhatsApp / GPS / Músicas)
             val mediaPercent = ((mediaVolume.toFloat() / maxMediaVolume.coerceAtLeast(1)) * 100).toInt()
@@ -1276,18 +1469,18 @@ fun DualVolumeControlCard(
                         text = "Mídia (WhatsApp / GPS)",
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
+                        fontSize = 9.sp
                     )
                 }
                 Text(
                     text = "$mediaPercent%",
                     color = Color(0xFF4FC3F7),
                     fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
+                    fontSize = 9.sp
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1347,7 +1540,7 @@ fun DualVolumeControlCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             // 📞 Canal 2: Volume de Chamada / Voz (Capacete)
             val callPercent = ((callVolume.toFloat() / maxCallVolume.coerceAtLeast(1)) * 100).toInt()
@@ -1368,18 +1561,18 @@ fun DualVolumeControlCard(
                         text = "Chamada / Intercom",
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
+                        fontSize = 9.sp
                     )
                 }
                 Text(
                     text = "$callPercent%",
                     color = PrimaryNeon,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
+                    fontSize = 9.sp
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

@@ -11,7 +11,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
-import android.util.Log
+import android.media.AudioManager
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +39,7 @@ class BluetoothHfpManager(
 
     private var headsetProxy: BluetoothHeadset? = null
     private var isReceiverRegistered = false
+    private var started = false
 
     private val _hfpAudioState = MutableStateFlow(HfpAudioState.AUDIO_DISCONNECTED)
     val hfpAudioState: StateFlow<HfpAudioState> = _hfpAudioState.asStateFlow()
@@ -49,18 +51,24 @@ class BluetoothHfpManager(
         @SuppressLint("MissingPermission")
         override fun onServiceConnected(profile: Int, proxy: BluetoothProfile?) {
             if (profile == BluetoothProfile.HEADSET) {
+                if (!started) {
+                    bluetoothAdapter?.closeProfileProxy(profile, proxy)
+                    return
+                }
                 headsetProxy = proxy as? BluetoothHeadset
-                Log.i(TAG, "Proxy BluetoothHeadset conectado com sucesso.")
+                AppLogger.i(TAG, "Proxy BluetoothHeadset conectado com sucesso.")
                 refreshConnectedDevice()
+                onConnectionStateChanged(_connectedDevice.value, BluetoothProfile.STATE_CONNECTED)
             }
         }
 
         override fun onServiceDisconnected(profile: Int) {
             if (profile == BluetoothProfile.HEADSET) {
-                Log.w(TAG, "Proxy BluetoothHeadset desconectado pelo sistema.")
+                AppLogger.w(TAG, "Proxy BluetoothHeadset desconectado pelo sistema.")
                 headsetProxy = null
                 _connectedDevice.value = null
                 _hfpAudioState.value = HfpAudioState.AUDIO_DISCONNECTED
+                onConnectionStateChanged(null, BluetoothProfile.STATE_DISCONNECTED)
             }
         }
     }
@@ -69,6 +77,18 @@ class BluetoothHfpManager(
         @SuppressLint("MissingPermission")
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
+                AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED -> {
+                    val mapped = when (intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1)) {
+                        AudioManager.SCO_AUDIO_STATE_CONNECTED -> HfpAudioState.AUDIO_CONNECTED
+                        AudioManager.SCO_AUDIO_STATE_CONNECTING -> HfpAudioState.AUDIO_CONNECTING
+                        else -> HfpAudioState.AUDIO_DISCONNECTED
+                    }
+                    if (_hfpAudioState.value != mapped) {
+                        AppLogger.i(TAG, "SCO_AUDIO_STATE: ${_hfpAudioState.value} -> $mapped")
+                        _hfpAudioState.value = mapped
+                        onAudioStateChanged(mapped)
+                    }
+                }
                 BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED -> {
                     val state = intent.getIntExtra(
                         BluetoothProfile.EXTRA_STATE,
@@ -81,7 +101,7 @@ class BluetoothHfpManager(
                         intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                     }
 
-                    Log.d(TAG, "ACTION_CONNECTION_STATE_CHANGED: device=${device?.name} state=$state")
+                    AppLogger.d(TAG, "ACTION_CONNECTION_STATE_CHANGED: device=${device?.name} state=$state")
                     if (state == BluetoothProfile.STATE_CONNECTED) {
                         _connectedDevice.value = device
                     } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
@@ -103,7 +123,7 @@ class BluetoothHfpManager(
                         BluetoothHeadset.STATE_AUDIO_CONNECTED -> HfpAudioState.AUDIO_CONNECTED
                         else -> HfpAudioState.AUDIO_DISCONNECTED
                     }
-                    Log.i(TAG, "ACTION_AUDIO_STATE_CHANGED: $mapped (código=$audioState)")
+                    AppLogger.i(TAG, "ACTION_AUDIO_STATE_CHANGED: $mapped (código=$audioState)")
                     _hfpAudioState.value = mapped
                     onAudioStateChanged(mapped)
                 }
@@ -115,28 +135,32 @@ class BluetoothHfpManager(
      * Inicia o gerenciamento do proxy HFP e registra os receptores de broadcast.
      */
     fun start() {
+        if (started) return
+        started = true
         if (bluetoothAdapter == null) {
-            Log.e(TAG, "BluetoothAdapter não disponível neste aparelho.")
+            AppLogger.e(TAG, "BluetoothAdapter não disponível neste aparelho.")
             return
         }
 
         try {
             bluetoothAdapter.getProfileProxy(context, profileListener, BluetoothProfile.HEADSET)
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao obter profile proxy BluetoothHeadset", e)
+            AppLogger.e(TAG, "Erro ao obter profile proxy BluetoothHeadset", e)
         }
 
         if (!isReceiverRegistered) {
             val filter = IntentFilter().apply {
                 addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)
                 addAction(BluetoothHeadset.ACTION_AUDIO_STATE_CHANGED)
+                addAction(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED)
             }
             try {
-                context.registerReceiver(hfpReceiver, filter)
+                // Bluetooth broadcasts can originate from the privileged Bluetooth process.
+                ContextCompat.registerReceiver(context, hfpReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
                 isReceiverRegistered = true
-                Log.d(TAG, "BroadcastReceiver HFP registrado com sucesso.")
+                AppLogger.d(TAG, "BroadcastReceiver HFP registrado com sucesso.")
             } catch (e: Exception) {
-                Log.e(TAG, "Erro ao registrar BroadcastReceiver HFP", e)
+                AppLogger.e(TAG, "Erro ao registrar BroadcastReceiver HFP", e)
             }
         }
     }
@@ -150,11 +174,11 @@ class BluetoothHfpManager(
         return try {
             val devices = proxy.connectedDevices
             val primary = devices.firstOrNull()
+            if (_connectedDevice.value != primary) AppLogger.d(TAG, "Dispositivo HFP primário conectado: ${primary?.name ?: "Nenhum"}")
             _connectedDevice.value = primary
-            Log.d(TAG, "Dispositivo HFP primário conectado: ${primary?.name ?: "Nenhum"}")
             primary
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao consultar connectedDevices do proxy", e)
+            AppLogger.e(TAG, "Erro ao consultar connectedDevices do proxy", e)
             null
         }
     }
@@ -171,6 +195,14 @@ class BluetoothHfpManager(
         } catch (e: Exception) {
             false
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun isAudioConnectedFor(address: String): Boolean {
+        val devices = try { headsetProxy?.connectedDevices.orEmpty() } catch (e: SecurityException) { emptyList() }
+        val device = if (address.isNotBlank()) devices.firstOrNull { it.address == address } else devices.singleOrNull()
+        return device != null && (isAudioConnected(device) ||
+            (devices.size == 1 && _hfpAudioState.value == HfpAudioState.AUDIO_CONNECTED))
     }
 
     /**
@@ -202,6 +234,7 @@ class BluetoothHfpManager(
      * Libera o proxy BluetoothHeadset e desregistra os listeners.
      */
     fun stop() {
+        started = false
         if (isReceiverRegistered) {
             try {
                 context.unregisterReceiver(hfpReceiver)
@@ -213,14 +246,14 @@ class BluetoothHfpManager(
             try {
                 bluetoothAdapter?.closeProfileProxy(BluetoothProfile.HEADSET, proxy)
             } catch (e: Exception) {
-                Log.e(TAG, "Erro ao fechar profile proxy BluetoothHeadset", e)
+                AppLogger.e(TAG, "Erro ao fechar profile proxy BluetoothHeadset", e)
             }
             headsetProxy = null
         }
 
         _connectedDevice.value = null
         _hfpAudioState.value = HfpAudioState.AUDIO_DISCONNECTED
-        Log.i(TAG, "BluetoothHfpManager encerrado.")
+        AppLogger.i(TAG, "BluetoothHfpManager encerrado.")
     }
 
     companion object {

@@ -1,11 +1,11 @@
 package com.btmicpro.receiver
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.util.Log
 import com.btmicpro.service.BtMicService
@@ -14,7 +14,7 @@ import com.btmicpro.service.BtMicService
  * Liga automaticamente o "sempre em chamada" quando o capacete/intercom Bluetooth conecta.
  * Para moto: você liga o Klack Y10 e o app já ativa sozinho, sem tirar a luva.
  *
- * Ouve: ACL_CONNECTED (qualquer BT), HEADSET profile, e SCO state.
+ * Ouve somente perfis de voz (HEADSET/LE Audio) e confirmação SCO.
  * Só ativa se o usuário já tinha deixado o modo ligado (KEY_ROUTER_ENABLED).
  */
 class BluetoothAutoStartReceiver : BroadcastReceiver() {
@@ -26,20 +26,16 @@ class BluetoothAutoStartReceiver : BroadcastReceiver() {
 
         Log.d(TAG, "BluetoothAutoStartReceiver: $action")
 
-        // Filtra apenas eventos de conexão
-        val isConnectionEvent = when (action) {
-            BluetoothDevice.ACTION_ACL_CONNECTED,
-            "android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED",
-            AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED -> true
+        val isConnected = when (action) {
+            ACTION_HEADSET_CONNECTION,
+            ACTION_LE_AUDIO_CONNECTION ->
+                intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1) == BluetoothProfile.STATE_CONNECTED
+            AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED ->
+                intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1) ==
+                    AudioManager.SCO_AUDIO_STATE_CONNECTED
             else -> false
         }
-        if (!isConnectionEvent) return
-
-        // Para SCO, só reage se conectou
-        if (action == AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED) {
-            val state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1)
-            if (state != AudioManager.SCO_AUDIO_STATE_CONNECTED) return
-        }
+        if (!isConnected) return
 
         try {
             val prefs = context.getSharedPreferences(BootReceiver.PREFS_NAME, Context.MODE_PRIVATE)
@@ -53,23 +49,6 @@ class BluetoothAutoStartReceiver : BroadcastReceiver() {
                 return
             }
 
-            // Verifica se tem dispositivo BT de comunicação realmente conectado
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val hasBtDevice = try {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                    audioManager.availableCommunicationDevices.any {
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                    }
-                } else {
-                    audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).any {
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-                    }
-                }
-            } catch (e: Exception) { true } // se falhar, assume que tem BT e tenta
-
-            // Também verifica via BT device do intent
             val btDevice: BluetoothDevice? = if (android.os.Build.VERSION.SDK_INT >= 33) {
                 intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
             } else {
@@ -77,7 +56,7 @@ class BluetoothAutoStartReceiver : BroadcastReceiver() {
                 intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
             }
             val deviceName = btDevice?.name ?: "desconhecido"
-            Log.d(TAG, "BT conectado: $deviceName hasBtDevice=$hasBtDevice")
+            Log.d(TAG, "Perfil de voz conectado: $deviceName ($action)")
 
             Log.d(TAG, "Capacete conectado - iniciando BtMicService automaticamente")
             BtMicService.start(context)
@@ -89,5 +68,9 @@ class BluetoothAutoStartReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "BTAutoStart"
+        private const val ACTION_HEADSET_CONNECTION =
+            "android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED"
+        private const val ACTION_LE_AUDIO_CONNECTION =
+            "android.bluetooth.action.LE_AUDIO_CONNECTION_STATE_CHANGED"
     }
 }

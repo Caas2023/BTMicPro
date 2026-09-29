@@ -9,9 +9,9 @@ import android.util.Log
 
 /**
  * Aumentador de volume de mídia para ouvir em bar/ruído extremo.
- * Usa APIs nativas do Android (sem root) para ganhar até +15dB percebido.
+ * Solicita até +8 dB com APIs nativas; a disponibilidade depende da sessão e do aparelho.
  *
- * - LoudnessEnhancer: compressor inteligente que aumenta voz sem estourar (0 a +15dB)
+ * - LoudnessEnhancer: ganho alvo de 0 a +8 dB
  * - Equalizer: empurra frequências de voz 1-3kHz para estourar no capacete
  * - AudioManager: garante STREAM_MUSIC no máximo
  *
@@ -55,7 +55,7 @@ class MediaBooster(private val context: Context) {
         try {
             audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             
-            // 1. LoudnessEnhancer - compressor que aumenta voz até +15dB
+            // 1. LoudnessEnhancer - ganho alvo de até +8 dB
             enableLoudnessEnhancer(boostLevel)
             
             // 3. Equalizer - empurra voz 1-3kHz
@@ -90,9 +90,8 @@ class MediaBooster(private val context: Context) {
         }
 
         try {
-            // Loudness: 0 a 15000 mB (0 a +15dB) - 100% = 8000mB (~+8dB é seguro sem distorcer)
-            // Curva: 0%=0mB, 50%=4000mB, 100%=8000-10000mB
-            val targetGainMb = (clamped * 80).coerceIn(0, 8000) // até +8dB seguro
+            // 100 mB = 1 dB: 100% corresponde a 800 mB (+8 dB).
+            val targetGainMb = targetGainMillibels(clamped)
             loudnessEnhancer?.setTargetGain(targetGainMb)
             Log.d(TAG, "Boost ajustado para $clamped% -> ${targetGainMb}mB")
         } catch (e: Exception) {
@@ -134,8 +133,7 @@ class MediaBooster(private val context: Context) {
             loudnessEnhancer?.release()
             
             loudnessEnhancer = LoudnessEnhancer(GLOBAL_SESSION).apply {
-                // Converte 0-100% para 0-8000 mB (mili-Bel, 100mB = 1dB)
-                val targetGain = (boostLevel.coerceIn(0, 100) * 80).coerceIn(0, 8000)
+                val targetGain = targetGainMillibels(boostLevel)
                 setTargetGain(targetGain)
                 enabled = true
                 Log.d(TAG, "LoudnessEnhancer ativado: targetGain=${targetGain}mB (${targetGain/100}dB)")

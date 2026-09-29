@@ -7,7 +7,6 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import java.util.concurrent.Executor
 
 /**
@@ -15,7 +14,7 @@ import java.util.concurrent.Executor
  *
  * Responsabilidades:
  * 1. Escutar adições e remoções de dispositivos de áudio via AudioDeviceCallback.
- * 2. Escutar OnCommunicationDeviceChangedListener (Android 13+) e OnModeChangedListener (Android 12+).
+ * 2. Escutar OnCommunicationDeviceChangedListener e OnModeChangedListener (Android 12+).
  * 3. Aplicar debounce de 250ms para prevenir tempestades de callbacks do SO.
  * 4. Capturar AudioRouteSnapshot e calcular RouteDiffType para evitar chamadas repetitivas de roteamento.
  */
@@ -38,24 +37,25 @@ class AudioRouteMonitor(
     private val audioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
             if (!isMonitoring) return
-            Log.d(TAG, "AudioDeviceCallback: dispositivo(s) adicionado(s): ${addedDevices?.joinToString { it.productName.toString() }}")
+            AppLogger.d(TAG, "DEVICE_ADDED: ${addedDevices?.joinToString { "${it.productName}/id=${it.id}/type=${it.type}/input=${it.isSource}" }}")
             triggerDebouncedRouteEvaluation()
         }
 
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
             if (!isMonitoring) return
-            Log.d(TAG, "AudioDeviceCallback: dispositivo(s) removido(s): ${removedDevices?.joinToString { it.productName.toString() }}")
+            AppLogger.d(TAG, "DEVICE_REMOVED: ${removedDevices?.joinToString { "${it.productName}/id=${it.id}/type=${it.type}/input=${it.isSource}" }}")
             triggerDebouncedRouteEvaluation()
         }
     }
 
     private val debounceRunnable = Runnable {
+        if (!isMonitoring) return@Runnable
         val currentSnapshot = captureSnapshot()
         val diff = computeDiff(lastSnapshot, currentSnapshot)
         lastSnapshot = currentSnapshot
 
-        Log.d(TAG, "Reavaliação de rota disparada. Diff detectado: $diff")
-        onRouteChange(diff)
+        AppLogger.d(TAG, "ROUTE_DIFF: $diff; comm=${currentSnapshot.communicationDeviceId}; mode=${currentSnapshot.audioMode}; inputs=${currentSnapshot.inputDeviceIds}; outputs=${currentSnapshot.outputDeviceIds}")
+        if (diff != RouteDiffType.NO_CHANGE) onRouteChange(diff)
     }
 
     /**
@@ -64,42 +64,42 @@ class AudioRouteMonitor(
     fun startMonitoring() {
         if (isMonitoring) return
         isMonitoring = true
-        Log.i(TAG, "Iniciando AudioRouteMonitor V5")
+        AppLogger.i(TAG, "Iniciando AudioRouteMonitor")
 
         lastSnapshot = captureSnapshot()
 
         try {
             audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler)
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao registrar AudioDeviceCallback", e)
+            AppLogger.e(TAG, "Erro ao registrar AudioDeviceCallback", e)
         }
 
         // Listener de modo de áudio (Android 12+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             modeListener = AudioManager.OnModeChangedListener { newMode ->
                 if (!isMonitoring) return@OnModeChangedListener
-                Log.d(TAG, "OnModeChangedListener: modo de áudio alterado para $newMode")
+                AppLogger.i(TAG, "MODE_CHANGED: $newMode")
                 triggerDebouncedRouteEvaluation()
             }
             try {
                 audioManager.addOnModeChangedListener(mainExecutor, modeListener!!)
             } catch (e: Exception) {
-                Log.e(TAG, "Erro ao registrar OnModeChangedListener", e)
+                AppLogger.e(TAG, "Erro ao registrar OnModeChangedListener", e)
             }
         }
 
-        // Listener de dispositivo de comunicação (Android 13+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        // Listener de dispositivo de comunicação (Android 12+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val listener = AudioManager.OnCommunicationDeviceChangedListener { device ->
                 if (!isMonitoring) return@OnCommunicationDeviceChangedListener
-                Log.d(TAG, "OnCommunicationDeviceChangedListener: dispositivo alterado para ${device?.productName}")
+                AppLogger.i(TAG, "COMM_DEVICE_CHANGED: ${device?.productName}; id=${device?.id}; type=${device?.type}")
                 triggerDebouncedRouteEvaluation()
             }
             commListener = listener
             try {
                 audioManager.addOnCommunicationDeviceChangedListener(mainExecutor, listener)
             } catch (e: Exception) {
-                Log.e(TAG, "Erro ao registrar OnCommunicationDeviceChangedListener", e)
+                AppLogger.e(TAG, "Erro ao registrar OnCommunicationDeviceChangedListener", e)
             }
         }
     }
@@ -164,7 +164,7 @@ class AudioRouteMonitor(
             modeListener = null
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && commListener != null) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && commListener != null) {
             try {
                 val listener = commListener as AudioManager.OnCommunicationDeviceChangedListener
                 audioManager.removeOnCommunicationDeviceChangedListener(listener)
@@ -173,7 +173,7 @@ class AudioRouteMonitor(
         }
 
         lastSnapshot = null
-        Log.i(TAG, "AudioRouteMonitor encerrado.")
+        AppLogger.i(TAG, "AudioRouteMonitor encerrado.")
     }
 
     companion object {

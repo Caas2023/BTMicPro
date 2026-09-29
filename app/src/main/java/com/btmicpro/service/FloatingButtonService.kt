@@ -15,7 +15,6 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -83,15 +82,13 @@ class FloatingButtonService : Service() {
         }
 
         prefs = getSharedPreferences(BootReceiver.PREFS_NAME, Context.MODE_PRIVATE)
-        val initialRunning = com.btmicpro.core.RouterStateHolder.isServiceRunning.value ||
-                prefs!!.getBoolean(BootReceiver.KEY_ROUTER_ENABLED, false)
+        val initialRunning = com.btmicpro.core.RouterStateHolder.isServiceRunning.value
         isEnabledFlow.value = initialRunning
 
         // Sincronização bidirecional em tempo real com o botão principal do app
         serviceScope.launch {
             com.btmicpro.core.RouterStateHolder.isServiceRunning.collect { isRunning ->
                 isEnabledFlow.value = isRunning
-                prefs?.edit()?.putBoolean(BootReceiver.KEY_ROUTER_ENABLED, isRunning)?.apply()
             }
         }
 
@@ -110,9 +107,9 @@ class FloatingButtonService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 20
-            y = 300
+            gravity = Gravity.TOP or Gravity.START
+            x = prefs?.getInt(PREF_FLOAT_X, 20) ?: 20
+            y = prefs?.getInt(PREF_FLOAT_Y, 300) ?: 300
         }
 
         lifecycleOwner = FloatingLifecycleOwner()
@@ -133,10 +130,7 @@ class FloatingButtonService : Service() {
                         .size(78.dp)
                         .clip(CircleShape)
                         .background(bgColor)
-                        .border(3.dp, Color.White, CircleShape)
-                        .clickable {
-                            if (!isMoving) toggleRouter()
-                        },
+                        .border(3.dp, Color.White, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -152,7 +146,9 @@ class FloatingButtonService : Service() {
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleOwner.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 
-        composeView.setOnTouchListener { _, event ->
+        composeView.setOnClickListener { toggleRouter() }
+
+        composeView.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params!!.x
@@ -166,15 +162,27 @@ class FloatingButtonService : Service() {
                     val dx = (event.rawX - initialTouchX).toInt()
                     val dy = (event.rawY - initialTouchY).toInt()
                     if (kotlin.math.abs(dx) > 10 || kotlin.math.abs(dy) > 10) isMoving = true
-                    params!!.x = initialX - dx
+                    params!!.x = initialX + dx
                     params!!.y = initialY + dy
-                    try { windowManager?.updateViewLayout(composeView, params) } catch (ignored: Exception) {}
+                    try {
+                        windowManager?.updateViewLayout(composeView, params)
+                    } catch (ignored: Exception) {}
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     if (isMoving) {
+                        prefs?.edit()
+                            ?.putInt(PREF_FLOAT_X, params?.x ?: 20)
+                            ?.putInt(PREF_FLOAT_Y, params?.y ?: 300)
+                            ?.apply()
                         handler.postDelayed({ isMoving = false }, 100)
+                    } else {
+                        view.performClick()
                     }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    isMoving = false
                     true
                 }
                 else -> false
@@ -194,11 +202,10 @@ class FloatingButtonService : Service() {
         val newEnabled = !currentlyRunning
         isEnabledFlow.value = newEnabled
         prefs?.edit()?.putBoolean(BootReceiver.KEY_ROUTER_ENABLED, newEnabled)?.apply()
-        com.btmicpro.core.RouterStateHolder.updateServiceRunning(newEnabled)
 
         if (newEnabled) {
-            BtMicService.start(this)
-            Toast.makeText(this, "MOTO MODE ligado", Toast.LENGTH_SHORT).show()
+            val started = BtMicService.start(this, BtMicServiceStartMode.ROUTE_WITH_MICROPHONE)
+            Toast.makeText(this, if (started) "Rota solicitada" else "Abra o app para ativar", Toast.LENGTH_SHORT).show()
         } else {
             BtMicService.stop(this)
             Toast.makeText(this, "MOTO MODE desligado", Toast.LENGTH_SHORT).show()
@@ -220,6 +227,9 @@ class FloatingButtonService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        private const val PREF_FLOAT_X = "floating_button_x"
+        private const val PREF_FLOAT_Y = "floating_button_y"
+
         fun start(context: Context) {
             if (!Settings.canDrawOverlays(context)) return
             val intent = Intent(context, FloatingButtonService::class.java)
@@ -258,4 +268,3 @@ class FloatingButtonService : Service() {
         fun performRestore(savedState: android.os.Bundle?) { controller.performRestore(savedState) }
     }
 }
-

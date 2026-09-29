@@ -47,25 +47,13 @@ object BatteryOptimizationHelper {
                 return true
             }
 
-            // Intent padrão - abre dialog direto "Permitir que o app execute em segundo plano?"
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
+            // A lista do sistema permite ajuste manual sem solicitar uma permissão adicional.
+            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-
-            // Verifica se o sistema tem essa tela
-            if (intent.resolveActivity(context.packageManager) != null) {
-                context.startActivity(intent)
-                Log.d(TAG, "Solicitação de whitelist de bateria enviada")
-                true
-            } else {
-                // Fallback: abre lista geral de otimização
-                val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(fallback)
-                true
-            }
+            context.startActivity(intent)
+            Log.d(TAG, "Configurações de otimização de bateria abertas")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Erro ao solicitar ignore battery optimization", e)
             false

@@ -25,19 +25,16 @@ class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val recordAudioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
-        val bluetoothGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions[Manifest.permission.BLUETOOTH_CONNECT] ?: false
-        } else true
-
-        if (recordAudioGranted && bluetoothGranted) {
+    ) {
+        // O resultado contém somente as permissões solicitadas nesta rodada.
+        if (hasRoutingPermissions()) {
             Toast.makeText(this, "Permissões concedidas com sucesso!", Toast.LENGTH_SHORT).show()
+            viewModel.resumeDesiredRouter()
             checkAndRequestBatteryOptimization()
         } else {
             Toast.makeText(
                 this,
-                "Permissões de microfone e Bluetooth são necessárias para o funcionamento correto.",
+                "A permissão Bluetooth é necessária para preparar a rota do intercom.",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -51,6 +48,9 @@ class MainActivity : ComponentActivity() {
                 MainScreen(viewModel = viewModel)
             }
         }
+        if (hasRoutingPermissions()) {
+            viewModel.resumeDesiredRouter()
+        }
     }
 
     override fun onResume() {
@@ -59,12 +59,21 @@ class MainActivity : ComponentActivity() {
         viewModel.onResumeCheckPromo()
     }
 
-    private fun hasBasicPermissions(): Boolean {
-        val audioOk = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val btOk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    override fun onStop() {
+        // O retorno é um teste local, não um capturador oculto em segundo plano.
+        viewModel.stopLiveMonitorForBackground()
+        super.onStop()
+    }
+
+    private fun hasRoutingPermissions(): Boolean {
+        val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        // FIX CORTE: antes só checava BLUETOOTH_CONNECT. Sem RECORD_AUDIO o serviço iniciava,
+        // a rota nunca ficava pronta e o WhatsApp caía para o mic do celular (longe, com vento) — parecia "cortando".
+        // Agora exige os dois para não dar falso "ligado".
+        if (!micGranted) return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
         } else true
-        return audioOk && btOk
     }
 
     private fun checkAndRequestBatteryOptimization() {

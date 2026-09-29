@@ -1,7 +1,12 @@
 package com.btmicpro.core
 
 import android.content.Context
+import android.os.Build
+import android.os.Process
+import android.os.SystemClock
 import android.util.Log
+import com.btmicpro.BuildConfig
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -11,160 +16,137 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
-import java.io.FileWriter
-import java.io.PrintWriter
-import java.io.StringWriter
-import java.text.SimpleDateFormat
-import java.util.ArrayDeque
-import java.util.Date
-import java.util.Locale
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
-/**
- * AppLogger — Sistema de Registro Contínuo e Flight Recorder de Áudio/Sistema.
- *
- * Funcionalidades:
- * - Buffer circular thread-safe em memória (últimos 1500 registros formatados com data/hora e milissegundos).
- * - Escrita assíncrona desacoplada em arquivo de log (btmic_flight_recorder.log) sem impacto na latência do áudio.
- * - StateFlow reativo para exibição em tempo real na interface Jetpack Compose.
- * - Captura global de exceções não tratadas (UncaughtExceptionHandler).
- * - Telemetria especializada de áudio: RMS, picos em dBFS, clipping e cortes de sinal.
- */
+/** Logs em cache por até 7 dias/32 MiB; exportação inclui todas as sessões retidas. */
 object AppLogger {
-
     private const val MAX_MEMORY_LOGS = 1500
-    private const val LOG_FILE_NAME = "btmic_flight_recorder.log"
-
-    private val memoryLogs = ArrayDeque<String>(MAX_MEMORY_LOGS)
+    private val sessionId = UUID.randomUUID().toString().take(8)
+    private val sequence = AtomicLong()
+    private val dropped = AtomicInteger()
+    private val memoryLogs = ArrayDeque<String>()
     private val logLock = Any()
-
     private val _logsState = MutableStateFlow<List<String>>(emptyList())
     val logsState: StateFlow<List<String>> = _logsState.asStateFlow()
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private sealed interface Command {
+        data class Line(val value: String, val time: Long) : Command
+        data class Export(val diagnostics: String, val result: CompletableDeferred<File>) : Command
+        data object Clear : Command
+    }
+    private val channel = Channel<Command>(2048)
+    @Volatile private var store: FlightLogStore? = null
+    @Volatile private var profile = "unknown"
+    @Volatile private var storageError: String? = null
+    private var initialized = false
+    private lateinit var exportDirectory: File
 
-    private val logChannel = Channel<String>(capacity = 500)
-    private val loggerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
-    private var logFile: File? = null
-    private var isInitialized = false
-
-    private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
-
+    @Synchronized
     fun init(context: Context) {
-        if (isInitialized) return
-        isInitialized = true
-
-        try {
-            val dir = context.getExternalFilesDir(null) ?: context.filesDir
-            logFile = File(dir, LOG_FILE_NAME)
-
-            // Inicia o consumidor assíncrono de escrita em disco
-            loggerScope.launch {
-                for (line in logChannel) {
-                    try {
-                        logFile?.let { file ->
-                            FileWriter(file, true).use { writer ->
-                                writer.appendLine(line)
-                            }
+        if (initialized) return
+        initialized = true
+        val app = context.applicationContext
+        profile = app.getSharedPreferences(com.btmicpro.receiver.BootReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+            .getString("audio_mode_profile", "standard") ?: "standard"
+        val disk = FlightLogStore(File(app.cacheDir, "flight_recorder"))
+        store = disk
+        exportDirectory = File(app.cacheDir, "log_exports")
+        scope.launch {
+            try {
+                synchronized(logLock) {
+                    val pending = memoryLogs.toList()
+                    memoryLogs.clear()
+                    (disk.readRecent() + pending).takeLast(MAX_MEMORY_LOGS).forEach(memoryLogs::addLast)
+                    _logsState.value = memoryLogs.toList()
+                }
+            } catch (e: Exception) { reportStorageError(e) }
+            for (command in channel) {
+                try {
+                    val lost = dropped.getAndSet(0)
+                    if (lost > 0) disk.append(format("WARN ", "LOGGER_OVERFLOW", "$lost eventos descartados por fila cheia"))
+                    when (command) {
+                        is Command.Line -> disk.append(command.value, command.time)
+                        is Command.Export -> {
+                            exportDirectory.mkdirs()
+                            // Mantém dois pacotes anteriores; nunca inclui o ZIP dentro de si mesmo.
+                            exportDirectory.listFiles()?.filter { it.extension == "zip" }
+                                ?.sortedByDescending { it.lastModified() }?.drop(1)?.forEach { it.delete() }
+                            val file = File(exportDirectory, "BTMicPro_logs_${System.currentTimeMillis()}.zip")
+                            disk.exportZip(file, command.diagnostics + "\n\n" + storageStatus())
+                            command.result.complete(file)
                         }
-                    } catch (ignored: Exception) {}
+                        Command.Clear -> disk.clear()
+                    }
+                    storageError = null
+                } catch (e: Exception) {
+                    reportStorageError(e)
+                    if (command is Command.Export) command.result.completeExceptionally(e)
                 }
             }
-
-            // Capturador global de crash
-            val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
-            Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-                e("CRASH_HANDLER", "CRASH FATAL NÃO TRATADO na Thread [${thread.name}]: ${throwable.message}", throwable)
-                defaultHandler?.uncaughtException(thread, throwable)
-            }
-
-            i("AppLogger", "=== FLIGHT RECORDER INICIALIZADO COM SUCESSO ===")
-        } catch (e: Exception) {
-            Log.e("AppLogger", "Falha ao inicializar arquivo de log", e)
         }
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            val fatal = format("ERROR", "CRASH", "thread=${thread.name}\n${Log.getStackTraceString(error)}")
+            // A fila pode não sobreviver ao processo; o crash é escrito sincronamente.
+            try { disk.append(fatal) } catch (e: Exception) { reportStorageError(e) }
+            previous?.uncaughtException(thread, error)
+        }
+        i("SESSION_START", "version=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE}); " +
+            "device=${Build.MANUFACTURER}/${Build.MODEL}; sdk=${Build.VERSION.SDK_INT}; build=${Build.DISPLAY}; retention=7d/32MiB")
     }
 
-    fun d(tag: String, message: String) {
-        Log.d(tag, message)
-        record("DEBUG", tag, message)
+    fun setProfile(code: String) { profile = code }
+    fun storageStatus(): String = storageError?.let { "Falha no cache: $it" }
+        ?: "Cache: até 7 dias / 32 MiB. Exportar ZIP inclui sessões anteriores. O Android pode limpar o cache."
+
+    private fun reportStorageError(error: Exception) {
+        val message = error.javaClass.simpleName + ": " + error.message
+        if (storageError != message) Log.e("AppLogger", "Falha ao persistir logs", error)
+        storageError = message
     }
 
-    fun i(tag: String, message: String) {
-        Log.i(tag, message)
-        record("INFO ", tag, message)
-    }
-
-    fun w(tag: String, message: String) {
-        Log.w(tag, message)
-        record("WARN ", tag, message)
-    }
-
+    fun d(tag: String, message: String) { Log.d(tag, message); record("DEBUG", tag, message) }
+    fun i(tag: String, message: String) { Log.i(tag, message); record("INFO ", tag, message) }
+    fun w(tag: String, message: String) { Log.w(tag, message); record("WARN ", tag, message) }
     fun e(tag: String, message: String, throwable: Throwable? = null) {
-        if (throwable != null) {
-            Log.e(tag, message, throwable)
-            val sw = StringWriter()
-            throwable.printStackTrace(PrintWriter(sw))
-            record("ERROR", tag, "$message\n$sw")
-        } else {
-            Log.e(tag, message)
-            record("ERROR", tag, message)
-        }
+        Log.e(tag, message, throwable)
+        record("ERROR", tag, message + (throwable?.let { "\n${Log.getStackTraceString(it)}" } ?: ""))
     }
+    fun audio(tag: String, message: String) { Log.d(tag, message); record("AUDIO", tag, message) }
 
-    /**
-     * Registro de telemetria acústica especializada.
-     */
-    fun audio(tag: String, message: String) {
-        Log.d(tag, "[AUDIO] $message")
-        record("AUDIO", tag, message)
-    }
+    private fun format(level: String, tag: String, message: String): String =
+        "[${ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)}] [$level] [$tag] " +
+            "session=$sessionId seq=${sequence.incrementAndGet()} pid=${Process.myPid()} " +
+            "elapsedMs=${SystemClock.elapsedRealtime()} profile=$profile $message"
 
     private fun record(level: String, tag: String, message: String) {
-        val timestamp = synchronized(dateFormat) {
-            dateFormat.format(Date())
-        }
-        val formattedLine = "[$timestamp] [$level] [$tag] $message"
-
+        val line = format(level, tag, message.take(60 * 1024))
         synchronized(logLock) {
-            if (memoryLogs.size >= MAX_MEMORY_LOGS) {
-                memoryLogs.removeFirst()
-            }
-            memoryLogs.addLast(formattedLine)
+            if (memoryLogs.size >= MAX_MEMORY_LOGS) memoryLogs.removeFirst()
+            memoryLogs.addLast(line)
             _logsState.value = memoryLogs.toList()
         }
-
-        logChannel.trySend(formattedLine)
+        if (!channel.trySend(Command.Line(line, System.currentTimeMillis())).isSuccess) dropped.incrementAndGet()
     }
 
-    /**
-     * Retorna todos os logs em formato de texto concatenado.
-     */
-    fun getAllLogsText(): String {
-        synchronized(logLock) {
-            return if (memoryLogs.isEmpty()) {
-                "Nenhum log registrado até o momento."
-            } else {
-                memoryLogs.joinToString(separator = "\n")
-            }
-        }
+    fun getAllLogsText(): String = synchronized(logLock) { memoryLogs.joinToString("\n") }
+
+    suspend fun exportLogs(diagnostics: String): File {
+        check(initialized) { "Logger não inicializado" }
+        val result = CompletableDeferred<File>()
+        channel.send(Command.Export(diagnostics, result)) // Barreira: todas as linhas anteriores foram escritas.
+        return result.await()
     }
 
-    /**
-     * Limpa o buffer de logs em memória e trunca o arquivo físico.
-     */
     fun clearLogs() {
-        synchronized(logLock) {
-            memoryLogs.clear()
-            _logsState.value = emptyList()
+        scope.launch {
+            channel.send(Command.Clear)
+            synchronized(logLock) { memoryLogs.clear(); _logsState.value = emptyList() }
+            i("AppLogger", "Logs limpos pelo usuário")
         }
-        loggerScope.launch {
-            try {
-                logFile?.writeText("")
-            } catch (ignored: Exception) {}
-        }
-        i("AppLogger", "Logs limpos pelo usuário.")
     }
-
-    /**
-     * Retorna o arquivo de log para compartilhamento.
-     */
-    fun getLogFile(): File? = logFile
 }

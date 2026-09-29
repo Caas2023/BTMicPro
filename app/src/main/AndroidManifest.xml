@@ -25,8 +25,8 @@
 
     <!-- Permissões para Serviços em Primeiro Plano (Foreground Services) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!-- Permissão para envio de notificações (Android 13+ / API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -42,7 +42,7 @@
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar"
-        tools:targetApi="35">
+        tools:targetApi="36">
 
         <!-- Activity Principal (Compose / Ponto de Entrada) -->
         <activity
@@ -59,12 +59,20 @@
         <service
             android:name=".service.BtMicService"
             android:exported="false"
-            android:foregroundServiceType="microphone|connectedDevice" />
+            android:foregroundServiceType="connectedDevice|microphone" />
 
         <!-- Botão Flutuante Sobreposto (opcional) -->
         <service
             android:name=".service.FloatingButtonService"
             android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.logs"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/log_paths" />
+        </provider>
 
         <!-- Broadcast Receivers -->
         <receiver
@@ -72,18 +80,17 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
         <receiver
             android:name=".receiver.BluetoothAutoStartReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
-                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
                 <action android:name="android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED" />
-                <action android:name="android.media.SCO_AUDIO_STATE_CHANGED" />
+                <action android:name="android.bluetooth.action.LE_AUDIO_CONNECTION_STATE_CHANGED" />
+                <action android:name="android.media.ACTION_SCO_AUDIO_STATE_UPDATED" />
             </intent-filter>
         </receiver>
 

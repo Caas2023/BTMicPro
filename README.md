@@ -1,33 +1,72 @@
-# BT Mic Pro 🏍️🎤
+# BT Mic Pro
 
-**BT Mic Pro** é um aplicativo Android desenvolvido especialmente para motociclistas que precisam enviar e ouvir áudios em qualquer aplicativo (WhatsApp, Telegram, etc) com o capacete, em ambientes com ruído extremo.
+Aplicativo Android em Kotlin e Jetpack Compose para selecionar e acompanhar a rota de comunicação de um fone ou intercomunicador Bluetooth.
 
-O aplicativo atua forçando o roteamento de áudio do sistema, obrigando aplicativos de terceiros a utilizarem o microfone do seu intercomunicador Bluetooth (via protocolo SCO), ao invés do microfone interno do celular, e mantendo o canal sempre ativo para ouvir e falar ao mesmo tempo.
+O projeto contém um serviço de roteamento, controles de volume de mídia e chamada, botão flutuante opcional, diagnóstico exportável e um motor DSP para monitoramento local do microfone. O processamento local não fornece áudio tratado diretamente ao WhatsApp. O funcionamento em aplicativos de terceiros precisa ser verificado em cada combinação de celular, intercomunicador e versão do aplicativo.
 
-## 🚀 Funcionalidades Principais
+## Estado atual
 
-### MOTO WHATSAPP MODE (Sempre em Chamada)
-Uma tela inicial minimalista com um botão **GIGANTE**, ideal para ser pressionado rapidamente mesmo utilizando luvas de motociclista. 
-* **O que faz:** Ao ser ativado, o aplicativo cria um serviço em segundo plano (Foreground Service) com chamada fantasma via Telecom, AudioFocus e keep-alive de silêncio 16kHz, forçando o canal Bluetooth SCO a ficar permanentemente aberto.
-* **Volume Maximizado:** Ao ligar o modo, o volume de mídia e chamadas do aparelho é automaticamente elevado para 100%, garantindo que você ouça as mensagens no meio do vento.
-* **Filtros Nativos:** Ativa no hardware (DSP MediaTek/Snapdragon) o Cancelamento de Eco Acústico (AEC), Supressão de Ruído (NS) e Controle Automático de Ganho (AGC).
-* **Auto-ligar:** Quando o intercomunicador conecta, o modo ativa sozinho. Após reiniciar o celular, volta sozinho.
-* **Uso Prático:** Você ativa o botão, minimiza o app, abre o WhatsApp e grava um áudio ou ouve um áudio. O WhatsApp vai puxar o som direto do capacete e você ouve no capacete ao mesmo tempo!
+- Versão de teste: **1.5.11**, código **29**.
+- Android mínimo declarado: API 26; `compileSdk` e `targetSdk`: **36**.
+- Prioridade de validação: **Cubot KingKong X Pro + WAYXIN KT-1**. Nove estratégias selecionáveis em Configurações. A v1.5.11 corrige a sustentação da solicitação de rota: no Android 15, uma solicitação de UID sem áudio ativo pode expirar após seis segundos. A gravação contínua no WhatsApp ainda precisa ser validada por perfil.
+- Compare no aparelho: retorno local; com teste de microfone parado, envio e reprodução de nota de voz no WhatsApp; chamada e reconexão Bluetooth. O perfil é experimental e não comprova funcionamento em todos os celulares.
+- A captura local tenta 16 kHz primeiro e depois 48/44,1/8 kHz conforme suporte. O roteamento legado usa SCO nas APIs 26–30; Android 12+ usa o dispositivo de comunicação.
+- A inicialização automática tem restrições de permissões e execução em segundo plano, especialmente no Android 14+.
+- A interface contém ajustes de retorno/DSP cujo fluxo de ativação ainda precisa ser concluído.
+- Não há implementação atual de chamada simulada via Telecom nem de gravador WAV com compartilhamento.
 
-## 🛠️ Tecnologias Utilizadas
-* **Kotlin & Jetpack Compose:** Interface 100% moderna, fluida e reativa.
-* **AudioManager & Telecom ConnectionService:** APIs nativas para simular chamada sempre ativa e forçar SCO.
-* **SilentAudioKeeper & Watchdog:** Mantém o túnel SCO vivo com silêncio 16kHz e re-aplica roteamento a cada 3s.
-* **Coroutines & StateFlow:** Gerenciamento assíncrono sem travar a interface.
+Consulte a [revisão e protocolo de testes](docs/reports/REVISAO_MODOS_E_LOGS_2026-09-29.md) e o [histórico](docs/HISTORICO_E_STATUS.md).
 
-## 📱 Como Instalar e Testar
-1. O APK compilado encontra-se na raiz do projeto: `BTMicPro.apk`.
-2. Transfira para o seu dispositivo Android (Testado no Cubot KingKong X Pro).
-3. Conecte o seu intercomunicador ou fone Bluetooth.
-4. Abra o app, dê as permissões necessárias (microfone, Bluetooth, notificações e ignorar otimização de bateria) e ative o **MOTO WHATSAPP MODE**.
+## Modos comparativos
 
-## 🚧 Estrutura do Projeto
-* `com.btmicpro.core`: Lógica de roteamento (`BluetoothAudioRouter`), keep-alive (`SilentAudioKeeper`) e otimização de bateria.
-* `com.btmicpro.telecom`: Simulação de chamada fantasma (`FakeCallConnectionService`).
-* `com.btmicpro.service`: Serviço de primeiro plano para manter o app vivo com notificação.
-* `com.btmicpro.ui`: Tela única em Jetpack Compose, alto contraste (Dark Theme + Neon Green) e alvo de toque grande para luvas.
+| Perfil | Experimento de roteamento |
+|---|---|
+| X Pro experimental | MODE_NORMAL, silêncio de voz 16 kHz/buffer mínimo de 200 ms, liberação automática para mídia |
+| Standard / referência | Mesmo silêncio, sem liberação automática para mídia |
+| 2 | MODE_IN_COMMUNICATION solicitado uma vez, com silêncio de voz |
+| 3 | MODE_NORMAL, apenas seleção de rota, sem silêncio |
+| 4 | MODE_NORMAL, silêncio com atributos de sonificação e saída Bluetooth preferida |
+| 5 | MODE_IN_COMMUNICATION solicitado uma vez, sem silêncio |
+| 6 | MODE_NORMAL, silêncio de voz em loop estático, sem produtor PCM contínuo |
+| 7 | Como X Pro, mas AudioTrack PCM em 8 kHz; não seleciona codec HFP |
+| 8 | Como X Pro, buffer mínimo de 500 ms e retomada após 2,5 s sem mídia |
+
+Exceto Standard, a liberação para mídia exige ausência de captura ativa visível ao Android. Trocas de perfil aguardam o fim da captura. Os modos 2/5 permitem comparar o modo VoIP, que pode afetar a aceitação de notas pelo WhatsApp; não há reafirmação periódica de modo. Nenhum perfil captura áudio de fundo para sustentar a rota. As diferenças do retorno/DSP pertencem ao teste local.
+
+## Logs para vários dias
+
+- Registro automático em `cache/flight_recorder/`: até **7 dias / 32 MiB**, com rotação em segmentos de 2 MiB.
+- Cada evento contém data, fuso, sessão, sequência, uptime e perfil aplicado. Registra SCO/HFP, dispositivos, modo, metadados de captura/reprodução, recuperação, erros e snapshots a cada 30 s.
+- **Marcar corte/falha agora** cria uma referência temporal para correlacionar o que foi ouvido com os eventos.
+- **Exportar ZIP** compartilha todos os arquivos retidos e o diagnóstico atual; **Copiar** contém apenas eventos recentes. O histórico é relido ao abrir novamente o app.
+- O cache pode ser removido pelo Android ou pelo usuário. Exporte antes disso. O app registra os eventos públicos que consegue observar; o logcat completo do sistema e a identificação da captura privada do WhatsApp podem exigir ADB.
+
+Para comparar, use um modo por período, grave e reproduza notas e marque as falhas. Após alguns dias, exporte o ZIP para análise; a cor de rota pronta sozinha não confirma a origem nem a qualidade do microfone.
+
+## Compilar e verificar
+
+Requisitos: JDK 17, Android SDK com plataforma 36 e ferramentas compatíveis. Configure `JAVA_HOME` e o caminho `sdk.dir` no arquivo local `local.properties`. AGP 8.10.1 requer Gradle 8.11.1 ou superior.
+
+```powershell
+.\gradlew.bat --console=plain testDebugUnitTest lintDebug
+.\gradlew.bat --console=plain assembleDebug
+```
+
+No Linux: `./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon`.
+
+Quando as dependências já estiverem em cache, é possível adicionar `--offline`. Se o cache padrão não for acessível, configure `GRADLE_USER_HOME` para um diretório de cache gravável.
+
+O build gera `app/build/outputs/apk/debug/app-debug.apk`. As cópias para distribuição ficam em `APK/BTMicPro_v<versionName>.apk`, conforme a [regra de armazenamento de APKs](.agents/rules/apk_management.md). Os testes e o Lint não substituem a validação de áudio Bluetooth em aparelho físico.
+
+## Estrutura
+
+| Caminho | Responsabilidade |
+|---|---|
+| `app/src/main/java/com/btmicpro/core/` | Roteamento, HFP, diagnóstico, volumes e processamento de áudio |
+| `app/src/main/java/com/btmicpro/service/` | Serviço de roteamento e botão flutuante |
+| `app/src/main/java/com/btmicpro/receiver/` | Eventos de inicialização e Bluetooth |
+| `app/src/main/java/com/btmicpro/ui/` | Interface Compose, estado e preferências |
+| `app/src/test/` | Testes JVM de DSP, modelos, exportação e ganho |
+| `docs/reports/` | Auditorias e evidências |
+
+Os documentos históricos descrevem versões anteriores; use o código atual e o relatório mais recente para avaliar o que está implementado e verificado.

@@ -115,7 +115,7 @@ sealed class RouterState {
     data class OutputAvailable(val device: BluetoothDeviceInfo) : RouterState()
 
     /**
-     * 9. ROUTE_READY — Rota bidirecional completa e estável:
+     * 9. ROUTE_READY — Instantâneo de rota bidirecional preparada:
      * Bluetooth conectado + Communication Device ativo + Entrada pronta + Saída pronta + Áudio HFP ativo.
      * (NÃO significa verificação de processo interno do WhatsApp).
      */
@@ -130,7 +130,13 @@ sealed class RouterState {
     ) : RouterState()
 
     /** 10. ROUTE_DEGRADED — Rota parcialmente funcional (ex: saída ativa mas entrada pendente) */
-    data class RouteDegraded(val device: BluetoothDeviceInfo, val reason: String) : RouterState()
+    data class RouteDegraded(val device: BluetoothDeviceInfo, val reason: String) : RouterState() {
+        val isMediaPlayback: Boolean get() = reason == MEDIA_PLAYBACK_REASON
+    }
+
+    companion object {
+        const val MEDIA_PLAYBACK_REASON = "Reprodução de mídia: canal de voz liberado para escutar"
+    }
 
     /** 11. ROUTE_LOST — Perda de canal de áudio ou desconexão do intercom */
     data class RouteLost(val reason: String) : RouterState()

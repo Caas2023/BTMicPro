@@ -35,3 +35,12 @@ New-Item -ItemType Directory -Force -Path 'APK' | Out-Null
 # 3. Copiar com versão
 Copy-Item 'app\build\outputs\apk\debug\app-debug.apk' -Destination 'APK\BTMicPro_v1.5.0.apk' -Force
 ```
+
+### 4. Build obrigatório após qualquer mudança de código
+- **Toda vez que modificar código, GERAR o APK em seguida** para o usuário testar: `assembleDebug` + cópia para `APK/` com o `versionName` atual.
+- Se mudar `versionName`/`versionCode` em `app/build.gradle.kts`, o nome do APK deve acompanhar.
+- Manter no máximo 2 APKs na pasta (o atual + o anterior); apagar duplicados antigos.
+
+### 5. Histórico obrigatório de modificações
+- **Toda modificação DEVE ser registrada** em `docs/HISTORICO_E_STATUS.md` com data, descrição, arquivos afetados e status, no mesmo formato das entradas existentes.
+- Relatórios de auditoria/melhoria vão em `docs/reports/` com nome `ASSUNTO_AAAA-MM-DD.md`; manter só os 2 mais recentes + o histórico.

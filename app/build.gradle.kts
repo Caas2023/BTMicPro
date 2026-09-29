@@ -6,14 +6,14 @@ plugins {
 
 android {
     namespace = "com.btmicpro"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.btmicpro"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 19
-        versionName = "1.5.1"
+        targetSdk = 36
+        versionCode = 29
+        versionName = "1.5.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -39,6 +39,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -52,7 +53,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
-    
     // Compose BOM e Componentes
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
@@ -60,12 +60,8 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
-    
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
-
-    // Gestão de Roteamento de Áudio Bluetooth
-    implementation(libs.twilio.audioswitch)
 
     // Testes Unitários
     testImplementation("junit:junit:4.13.2")

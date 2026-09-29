@@ -11,8 +11,8 @@ import com.btmicpro.service.BtMicService
  * Reinicia o serviço de roteamento de microfone automaticamente após boot,
  * atualização do app ou desbloqueio inicial.
  *
- * V2: Trata BOOT_COMPLETED + LOCKED_BOOT_COMPLETED + MY_PACKAGE_REPLACED
- * para garantir "sempre em chamada" mesmo após reiniciar a moto com celular no bolso.
+ * Trata BOOT_COMPLETED + MY_PACKAGE_REPLACED. Não executa antes do primeiro
+ * desbloqueio, pois as preferências usam armazenamento protegido por credencial.
  */
 class BootReceiver : BroadcastReceiver() {
 
@@ -24,7 +24,6 @@ class BootReceiver : BroadcastReceiver() {
 
         // Aceita múltiplos gatilhos de inicialização
         val isBootEvent = action == Intent.ACTION_BOOT_COMPLETED ||
-                action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
                 action == "android.intent.action.QUICKBOOT_POWERON" || // HTC, etc
                 action == Intent.ACTION_MY_PACKAGE_REPLACED ||
                 action == "android.intent.action.MY_PACKAGE_REPLACED"
@@ -41,23 +40,9 @@ class BootReceiver : BroadcastReceiver() {
             Log.d(TAG, "shouldAutoStart=$shouldAutoStart, wasRouterEnabled=$wasRouterEnabled")
 
             if (shouldAutoStart && wasRouterEnabled) {
-                // Pequeno delay para o Bluetooth stack inicializar após boot
-                // Sem isso, o setCommunicationDevice falha porque BT ainda não está pronto
-                val delayMs = if (action == Intent.ACTION_LOCKED_BOOT_COMPLETED) 15000L else 5000L
-                Log.d(TAG, "Agendando reinício do BtMicService em ${delayMs}ms...")
-
-                // Usa goAsync para não bloquear o BroadcastReceiver + Handler para delay
-                val pendingResult = goAsync()
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    try {
-                        Log.d(TAG, "Reiniciando BtMicService automaticamente após o boot.")
-                        BtMicService.start(context)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Falha ao reiniciar BtMicService após boot", e)
-                    } finally {
-                        pendingResult.finish()
-                    }
-                }, delayMs)
+                // A engine já possui retry; manter o receiver curto evita timeout do broadcast.
+                Log.d(TAG, "Solicitando reinício do BtMicService após boot/update.")
+                BtMicService.start(context)
             } else {
                 Log.d(TAG, "Auto-start desabilitado ou router estava desligado - não reiniciando")
             }

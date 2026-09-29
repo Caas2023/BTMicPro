@@ -38,7 +38,6 @@ class BtMicService : Service() {
     private lateinit var routingEngine: BluetoothRoutingEngine
     private lateinit var notificationManager: NotificationManager
     private lateinit var dualVolumeManager: com.btmicpro.core.DualVolumeManager
-
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Criando BtMicService V4 — Roteamento bidirecional WhatsApp ↔ Intercom")
@@ -70,27 +69,45 @@ class BtMicService : Service() {
             return START_NOT_STICKY
         }
 
+        val startMode = BtMicServiceStartMode.fromAction(action)
         val initialNotification = buildNotification(
             title = getString(R.string.notification_title_waiting),
             content = getString(R.string.notification_desc_waiting)
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val foregroundTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                    if (startMode == BtMicServiceStartMode.ROUTE_WITH_MICROPHONE) {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    } else {
+                        0
+                    }
+                startForeground(
+                    NOTIFICATION_ID,
+                    initialNotification,
+                    foregroundTypes
+                )
             } else {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                startForeground(NOTIFICATION_ID, initialNotification)
             }
-            startForeground(NOTIFICATION_ID, initialNotification, serviceType)
-        } else {
-            startForeground(NOTIFICATION_ID, initialNotification)
-        }
 
-        com.btmicpro.core.AppLogger.i(TAG, "BtMicService em Primeiro Plano iniciado (Foreground Service ativo)")
-        com.btmicpro.core.RouterStateHolder.activeEngine = routingEngine
-        routingEngine.startEngine()
-        com.btmicpro.core.RouterStateHolder.updateServiceRunning(true)
+            com.btmicpro.core.AppLogger.i(TAG, "BtMicService em primeiro plano: modo $startMode")
+            com.btmicpro.core.RouterStateHolder.activeEngine = routingEngine
+            routingEngine.startEngine()
+            // Sem AudioRecord próprio: o WhatsApp é o dono exclusivo da captura.
+            // Um segundo gravador competindo pelo microfone derrubava o SCO no meio
+            // da nota de voz. O canal é segurado pelo keep-alive de silêncio.
+            com.btmicpro.core.RouterStateHolder.updateServiceRunning(true)
+        } catch (e: RuntimeException) {
+            com.btmicpro.core.AppLogger.e(TAG, "Android recusou o início do serviço de rota", e)
+            com.btmicpro.core.RouterStateHolder.updateState(
+                RouterState.Error("Não foi possível iniciar o serviço em segundo plano. Abra o app e tente novamente.")
+            )
+            com.btmicpro.core.RouterStateHolder.updateServiceRunning(false)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
 
         return START_STICKY
     }
@@ -100,7 +117,7 @@ class BtMicService : Service() {
             is RouterState.RouteReady -> {
                 buildNotification(
                     title = "🎧 BT Mic Pro — Rota Pronta",
-                    content = "Intercom: ${state.device.name} • Entrada e Saída ativas"
+                    content = "Intercom: ${state.device.name} • Rota preparada; valide no WhatsApp"
                 )
             }
             is RouterState.RoutingVerified -> {
@@ -123,7 +140,7 @@ class BtMicService : Service() {
             }
             is RouterState.RouteDegraded -> {
                 buildNotification(
-                    title = "⚠️ Rota de Áudio Parcial",
+                    title = if (state.isMediaPlayback) "🎧 Reprodução de mídia" else "⚠️ Rota de Áudio Parcial",
                     content = "Intercom: ${state.device.name} • ${state.reason}"
                 )
             }
@@ -200,7 +217,10 @@ class BtMicService : Service() {
                     content = "Intercom: ${state.device.name}"
                 )
             }
-            RouterState.Disconnected, RouterState.Inactive -> return
+            RouterState.Disconnected, RouterState.Inactive -> buildNotification(
+                title = "BT Mic Pro — Aguardando intercom",
+                content = "Canal de voz não conectado"
+            )
         }
 
         notificationManager.notify(NOTIFICATION_ID, notification)
@@ -251,11 +271,17 @@ class BtMicService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         com.btmicpro.core.AppLogger.i(TAG, "Destruindo BtMicService — Limpando rotas de áudio e recursos do SO")
+        // BUG-12: Cancela o serviceScope ANTES de parar a engine.
+        // A coroutine de coleta de routerState (linha 57) precisa ser cancelada
+        // primeiro para evitar que tente atualizar a notificação durante o shutdown.
+        // Sem isso, a engine publica RouterState.Disconnected via updateState(),
+        // mas a coroutine de coleta pode já estar em estado inconsistente,
+        // resultando em notificação persistente com estado errado.
+        serviceScope.cancel()
         routingEngine.stopEngine()
         dualVolumeManager.stopMonitoring()
         com.btmicpro.core.RouterStateHolder.updateServiceRunning(false)
         com.btmicpro.core.RouterStateHolder.updateState(RouterState.Disconnected)
-        serviceScope.cancel()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -266,20 +292,37 @@ class BtMicService : Service() {
         private const val NOTIFICATION_ID = 1001
         const val ACTION_STOP_SERVICE = "com.btmicpro.action.STOP_SERVICE"
 
-        fun start(context: Context) {
-            val intent = Intent(context, BtMicService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+        fun start(
+            context: Context,
+            mode: BtMicServiceStartMode = BtMicServiceStartMode.ROUTE_ONLY
+        ): Boolean {
+            val intent = Intent(context, BtMicService::class.java).apply {
+                action = when (mode) {
+                    BtMicServiceStartMode.ROUTE_ONLY -> BtMicServiceStartMode.ACTION_ROUTE_ONLY
+                    BtMicServiceStartMode.ROUTE_WITH_MICROPHONE ->
+                        BtMicServiceStartMode.ACTION_ROUTE_WITH_MICROPHONE
+                }
+            }
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                true
+            } catch (e: RuntimeException) {
+                com.btmicpro.core.AppLogger.e(TAG, "Falha ao solicitar início do serviço", e)
+                com.btmicpro.core.RouterStateHolder.updateState(
+                    RouterState.Error("O Android bloqueou o início automático. Abra o BT Mic Pro e ative novamente.")
+                )
+                com.btmicpro.core.RouterStateHolder.updateServiceRunning(false)
+                false
             }
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, BtMicService::class.java).apply {
-                action = ACTION_STOP_SERVICE
-            }
-            context.startService(intent)
+            // Parar um serviço inativo não deve criá-lo nem inicializar áudio/volumes.
+            context.stopService(Intent(context, BtMicService::class.java))
         }
     }
 }

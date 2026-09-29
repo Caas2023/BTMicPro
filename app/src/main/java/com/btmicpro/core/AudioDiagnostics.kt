@@ -124,7 +124,24 @@ data class AudioDiagnostics(
      * Exporta a telemetria em formato JSON puro sem dependências externas.
      */
     fun exportAsJson(): String {
-        fun escape(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+        fun escape(s: String) = buildString {
+            for (character in s) {
+                when (character) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    '\b' -> append("\\b")
+                    else -> if (character < ' ') {
+                        append("\\u")
+                        append(character.code.toString(16).padStart(4, '0'))
+                    } else {
+                        append(character)
+                    }
+                }
+            }
+        }
         val inputsJson = inputDevices.joinToString(separator = ", ") { "\"${escape(it)}\"" }
         val outputsJson = outputDevices.joinToString(separator = ", ") { "\"${escape(it)}\"" }
         val eventsJson = recentEvents.takeLast(20).joinToString(separator = ",\n") { ev ->

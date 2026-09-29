@@ -1,5 +1,171 @@
 # 📜 Histórico e Status do Projeto — BT Mic Pro
 
+### 2026-09-29 — v1.5.11: modos comparativos e logs persistentes de vários dias
+- **Motivo**: Usuário pediu estratégias diferentes em cada modo, novos experimentos e logs em cache para analisar após dias de uso. Revisão ADB da v1.5.9 mostrou `updateCommunicationRouteClientState` seguido de `stopScoUsingVirtualVoiceCall` em ~6 s; AOSP Android 15 possui `CHECK_CLIENT_STATE_DELAY_MS = 6000` e desativa solicitações de UIDs sem playback/captura. Isso explica os fechamentos correlacionados, sem atribuir todos os cortes ao rádio.
+- **Descrição**: Sustentação passou a pertencer à engine, iniciando durante a preparação e sobrevivendo a oscilações curtas. Escrita PCM bloqueante sem sleep extra, tratamento de erros/parciais e encerramento por sessão. Nove perfis comparativos (Standard, X Pro e 2–8): modo normal/VoIP solicitado uma vez, com/sem silêncio, voz/sonificação, loop estático, PCM 8 kHz e margem maior. Troca de perfil aguarda captura ativa terminar; liberação para mídia respeita estratégia e captura. Recuperação limitada, rechecagem de oscilações em 300 ms, prioridades de chamada e correspondência de entradas corrigidas. Indicadores deixam de afirmar captura WhatsApp apenas pela seleção da rota.
+- **Logs**: cache interno `flight_recorder/`, até 7 dias/32 MiB, segmentos de 2 MiB; data/fuso, sessão, sequência, uptime, perfil, callbacks SCO/HFP/dispositivos/modo/captura/reprodução, tentativas e snapshot a cada 30 s com bateria, tela, economia, volumes e underruns. Crash síncrono, contagem de perda por fila cheia, restauração de eventos recentes e exportação ZIP de todas as sessões retidas com FileProvider. Botão para marcar corte/falha com horário. O Android pode limpar cache; APIs públicas não fornecem todo o logcat nem identificam necessariamente a captura de outro app.
+- **Arquivos**: `app/build.gradle.kts`; `core/{AppLogger,FlightLogStore,AudioActivityObserver,AudioModeProfile,SilentAudioKeeper,BluetoothRoutingEngine,CommunicationDeviceManager,RouteHealth,MediaRoutePolicy,AudioRouteMonitor,BluetoothHfpManager,LiveAudioMonitor,RouterState}.kt`; `service/BtMicService.kt`; `ui/{MainViewModel,MainScreen}.kt`; `AndroidManifest.xml`; `res/xml/log_paths.xml`; testes de persistência, rotas, perfis e mídia; documentação.
+- **Documentação/organização**: README atualizado com matriz de modos e exportação; `docs/reports/REVISAO_MODOS_E_LOGS_2026-09-29.md` consolida a revisão. Mantidos os relatórios de 29/09 e 07/09; os dois relatórios não versionados de 06/09 foram preservados em `/tmp/opencode/btmic-review-2026-09-29/previous-reports/` antes da remoção da pasta, conforme limite do projeto. Corrigidos espaços finais nos arquivos revisados.
+- **Verificação**: `./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon`: BUILD SUCCESSFUL, **42 testes/0 falhas**, **Lint 0 erros/93 avisos**. APK 1.5.11 gerado e assinatura igual à 1.5.9. Mantidos em `APK/` somente 1.5.11 e 1.5.9 (retorno); 1.5.10 regressiva preservada fora do repositório.
+- **Instalação**: backup de preferências/arquivos internos em `/tmp/opencode/btmic-review-2026-09-29/before-1.5.11.tar`; `adb install -r APK/BTMicPro_v1.5.11.apk` concluído no KingKong X Pro, sem limpeza de dados. Perfil anterior `x_pro_test` preservado.
+- **Artefato final**: APK instalado/coletado tinha SHA-256 `62d6d42243cd0c602ca6d11228855500fef7013843ed071f1cae657daa9ca92a`. Após somente limpeza de espaço em linha vazia de `MainScreen.kt`, `assembleDebug` passou novamente e gerou `APK/BTMicPro_v1.5.11.apk`, SHA-256 `0427a18ddf4cb8be5caf70e64d944a190e86e2a97973b978247c04eb61d1b80d`, assinatura verificada. A reinstalação deste último empacotamento encontrou USB/ADB desconectado; as funcionalidades novas já estavam no APK 1.5.11 instalado e observado. Não confundir equivalência de código funcional com identidade binária.
+- **Observação física inicial**: três dumps do KingKong X Pro em t=0/12/40 s mantiveram o cliente do BT Mic Pro com `mPlaybackActive=true`, `mRecordingActive=false` e dispositivo preferido SCO KT-1. Cache coletado contém sessão 1.5.11, perfil `x_pro_test`, seleção, callbacks e heartbeat com `AUDIO_CONNECTED`, `underruns=0`, `routeLoss=0`, `scoDisconnect=0`, `MODE_NORMAL` e tela apagada. A confirmação de atividade ultrapassou a janela de seis segundos da falha anterior; não havia captura ativa nessa observação.
+- **Status**: ✅ 42 testes aprovados, APK gerado/instalado, persistência em cache observada e sustentação da rota por mais de 40 s no experimental. ⏳ Gravação/reprodução WhatsApp, demais perfis e vários dias de uso aguardam teste real. Não classificar a captura como corrigida somente pela sustentação ociosa.
+
+### 2026-09-29 — MCP GitHub e preparação da sincronização
+- **Descrição**: Instalado servidor oficial `github-mcp-server` v1.12.2 com checksum verificado e configurado MCP global OpenCode V2. `opencode mcp list` confirmou `github connected`. Acesso autenticado a `Caas2023/BTMicPro` com permissão de push; remoto `origin` já correspondia ao destino. Fetch confirmou `main` local/remoto no mesmo commit de base. Credencial em arquivo local privado fora do workspace e helper restrito ao repositório.
+- **Arquivos**: configuração e lançadores locais fora do repositório; identidade Git local baseada na conta autenticada e endereço noreply em `.git/config`; `docs/HISTORICO_E_STATUS.md`.
+- **Status**: MCP conectado e acesso remoto validado. Conjunto v1.5.11 com testes/build concluídos, preparado para commit e push na branch `main`.
+
+### 2026-09-29 — Logs pós-rollback: SCO ainda instável na v1.5.9
+- **Descrição**: Coletado logcat após voltar para 1.5.9 (`/tmp/opencode/kingkong-after-rollback-2026-09-29.log`, fora do repositório). Perfil ativo `x_pro_test`; entre 01:52:21 e 01:52:49 o canal SCO do KT-1 abriu/fechou repetidamente em ~4–6 s, com eventos Bluetooth `SCO Choppy`, RSSI de -71 a -78 dBm, SNR reportado 0 e amostras NoRX 9–72. Engine publicou RouteReady transitório seguido de avisos de oscilação; instantâneo 01:53:08 mostrava SCO inativo/A2DP ativo. `dumpsys media.audio_policy` indicava entrada BUILTIN_MIC para cliente inativo do sistema, **não** para uma captura WhatsApp ativa. Buffer pós-rollback não contém `startInput` de nova nota de voz; ainda não é possível confirmar se o microfone escolhido pelo WhatsApp na v1.5.9 é KT-1 ou interno. USB do KT-1 também segue conectado ao PC, fato a controlar em teste Bluetooth isolado, sem presumir que isso seja a causa.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md`; log temporário fora do projeto.
+- **Status**: ❌ Oscilação HFP/SCO persiste após downgrade e não foi introduzida exclusivamente na v1.5.10. ⏳ Nova captura física controlada com BT Mic Pro ligado, KT-1 próximo ao telefone e, se possível, sem USB do KT-1 no PC; analisar rota de entrada enquanto WhatsApp realmente grava.
+
+### 2026-09-29 — Rollback ADB da v1.5.10 para v1.5.9 após perda do microfone
+- **Descrição**: Telefone voltou a aparecer no ADB. Backup de `shared_prefs`/`files` em `/tmp/opencode/btmicpro-before-rollback-1.5.10.tar`, validado antes da instalação. Executado `adb install -r -d APK/BTMicPro_v1.5.9.apk` (sem desinstalar nem apagar dados): sucesso. `dumpsys package` confirma versionCode 27/versionName 1.5.9, permissões de gravação/Bluetooth/notificação ainda concedidas, serviço em primeiro plano e preferência atual `x_pro_test` preservada (o usuário havia mudado de modo 5 para experimental entre testes). Às 01:52:45, rota SCO KT-1 ativa em instantâneo após breve reconexão; cliente AudioRecord inativo ao inspecionar, portanto não comprova origem de captura na nota de voz. O projeto permanece com código/APK v1.5.10 para análise, mas esta versão **não deve ser considerada validada** para o KingKong X Pro. Nenhuma gravação ou mensagem produzida pelo assistente.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md`; backup temporário fora do projeto; APK v1.5.9 preservado em `APK/`.
+- **Status**: ✅ Rollback preservando dados e perfil confirmado. ⏳ Necessária nota de voz curta na v1.5.9 com app ligado para verificar se a captação do KT-1 voltou; instabilidade SCO já existia antes, então não atribuir perda exclusivamente ao modo 5 sem teste controlado.
+
+### 2026-09-29 — Regressão de captura na v1.5.10; rollback bloqueado por ausência de ADB
+- **Descrição**: Após instalação v1.5.10, usuário relata que escuta normalmente mas o microfone do intercom não grava; modo 5 e experimental funcionavam antes. Mudança que removeu `MODE_IN_COMMUNICATION` do modo 5 é suspeita, mas não se pode atribuir toda a falha sem captura ativa no novo APK; mudanças no perfil experimental e instabilidade SCO preexistente também precisam ser isoladas. Tentado iniciar reversão para o APK original `APK/BTMicPro_v1.5.9.apk`, cuja assinatura é igual à da v1.5.10; dispositivo não aparece em `adb devices -l` nem em `lsusb` (só KT-1 USB está presente). Nenhuma reinstalação/desinstalação ou alteração do celular feita nesta etapa. Código local e APK v1.5.10 ainda estão presentes; backup pré-update em `/tmp/opencode/btmicpro-before-1.5.10.tar`.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md`.
+- **Status**: ❌ Regressão relatada, sem validação por log da nova gravação. ⛔ Reversão pendente da reconexão USB/ADB do KingKong X Pro. Priorizar rollback seguro preservando dados antes de novo experimento.
+
+### 2026-09-29 — v1.5.10: proteção da captura em todos os perfis
+- **Motivo**: Usuário descartou Standard como solução e pediu atualização em todos os modos após observar cortes de microfone; logs mostraram disputa periódica de `MODE_IN_COMMUNICATION` no modo 5 e falhas `SCO Choppy` no KT-1.
+- **Descrição**: Todos os perfis de roteamento preservam `MODE_NORMAL` (modos 2 e 5 deixam de simular chamada); o motor deixa de alterar `AudioManager.mode` ao avaliar a rota e a troca de perfil não força modo. No perfil X Pro, `MediaRoutePolicy` não libera o SCO durante captura ativa observada por `activeRecordingConfigurations` e zera a janela de espera; em falha de permissão mantém a rota por segurança. UI e notificação mostram estado de escuta de mídia em amarelo, não como erro vermelho, quando há liberação intencional. Textos dos perfis corrigidos para não prometer controle do áudio do WhatsApp. Mantidas diferenças de keep-alive entre perfis, sem mexer no KT-1 ou no firmware.
+- **Arquivos**: `app/build.gradle.kts` (versionCode 28, versionName 1.5.10); `app/src/main/java/com/btmicpro/core/{AudioModeProfile,BluetoothRoutingEngine,MediaRoutePolicy,RouterState}.kt`; `app/src/main/java/com/btmicpro/ui/{MainViewModel,MainScreen}.kt`; `app/src/main/java/com/btmicpro/service/BtMicService.kt`; `app/src/test/java/com/btmicpro/core/{AudioModeProfileTest,MediaRoutePolicyTest}.kt`; `docs/HISTORICO_E_STATUS.md`; `APK/BTMicPro_v1.5.10.apk`.
+- **Validação/entrega**: `./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon` concluído; 34 testes, 0 falhas; Lint 0 erros/96 avisos. Primeiro build offline não encontrou JUnit, retry normal teve sucesso. APK assinado com mesmo certificado da v1.5.9, instalado com `adb install -r` no KingKong X Pro sem desinstalar/limpar dados; backup preventivo em `/tmp/opencode/btmicpro-before-1.5.10.tar`. Versão 1.5.10 e perfil salvo `mode_5` confirmados, permissões mantidas. Processo novo com `MODE_NORMAL` e sem proprietário de modo; logs antigos de `Alterando AudioManager.mode` vieram do PID da v1.5.9 anterior à atualização.
+- **Status**: ✅ Build, testes e instalação concluídos. ⏳ Não há confirmação de nota de voz contínua no WhatsApp na v1.5.10. Instantâneo às 01:45:48 ainda mostrava SCO inativo/A2DP ativo fora de gravação, após RouteReady temporário; não afirmar estabilidade do canal. Falhas físicas de enlace (`SCO Choppy`) não são corrigíveis pelo app e exigem nova medição comparativa.
+
+### 2026-09-29 — Auditoria dos vários testes de áudio no KingKong X Pro (logs ADB)
+- **Descrição**: Capturado logcat atual (main/system/events, arquivo temporário `/tmp/opencode/kingkong-voice-tests-2026-09-29.log`, não versionado e potencialmente sensível). No fim da janela, preferência atual é `mode_5`, selecionada no aparelho após o retorno anterior ao Standard; o app detém `MODE_IN_COMMUNICATION`. `dumpsys audio` registra alternância `MODE_NORMAL` pelo sistema e `MODE_IN_COMMUNICATION` pelo BT Mic Pro a cada ~6 s (ex.: 00:57:24–00:58:22). Logs Bluetooth mostram sete alertas distintos `SCO Choppy` entre 00:56:36 e 00:57:32, RSSI de -57 a -82 dBm, SNR reportado 0 e NoRX 41–100 nos eventos; SCO fechou às 00:57:04 e reconectou às 00:57:12, com RouteReady publicado novamente. Esses eventos são compatíveis com corte de voz, mas não fornecem o conteúdo das notas nem garantem que cada evento tenha ocorrido durante uma gravação: os `startInput`/`stopInput` dos testes anteriores não permanecem todos no buffer coletado. O perfil mode_5 pode interferir no WhatsApp por assumir modo de comunicação, sem comprovar ser a única causa do SCO choppy. Nenhuma preferência, firmware ou código alterado nesta auditoria.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md`; log temporário fora do projeto.
+- **Status**: ❌ Canal HFP/SCO apresenta falha observada e alternância de modo pelo app; ⏳ repetir gravação controlada no perfil Standard com log iniciado antes e comparação app desligado para isolar causas. Não declarar correção apenas por RouteReady.
+
+### 2026-09-29 — Corte de microfone durante gravação WhatsApp; retorno ao perfil Standard
+- **Descrição**: Usuário confirmou áudio audível, mas microfone corta durante gravação. No log do KingKong X Pro, `startInput` às 00:49:16 e `stopInput` às 00:49:33; às 00:49:20 o Bluetooth gerou relatório `SCO Choppy` do KT-1 com RSSI -76 dBm, SNR 0, NoRX 113 e glitchCount 6144 (contadores do relatório, não taxa de perda calculada); às 00:49:22 SCO fechou enquanto captura estava em curso. `MEDIA_YIELD` só ocorreu às 00:49:35, depois do stopInput: não atribuir esse corte específico ao yield. Logs também mostram oscilações periódicas da seleção SCO. Para priorizar captura, backup do XML atual em `/tmp/opencode/btmicpro-prefs-before-rollback.xml`, revertido exclusivamente `audio_mode_profile=x_pro_test` para `standard`, reiniciado app; log confirma perfil Standard e RouteReady transitório. Não houve alteração de código/firmware ou volume. Atenção: Standard mantém SCO/keep-alive e não foi demonstrado que resolva a falha de rádio; playback e gravação juntos permanecem por validar.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md`; backup de preferências temporário fora do projeto.
+- **Status**: ⏳ Perfil revertido e serviço ativo; corte real durante captura documentado, causa entre link RF KT-1, pilha Bluetooth e política do app ainda não isolada. Exige comparação controlada próximo ao celular com app desligado/ligado e nota de voz, sem afirmar correção.
+
+### 2026-09-29 — Correção do relato de reprodução no KT-1
+- **Descrição**: Usuário esclareceu que consegue ouvir áudio tanto com o BT Mic Pro ligado quanto desligado. Portanto a saída audível está confirmada pelo usuário; o diagnóstico anterior de reprodução não validada/possivelmente inaudível não representa o estado atual. Botão vermelho e alternância SCO/A2DP não comprovam falha de reprodução; permanecem pendentes a estabilidade da rota de comunicação fora da reprodução e o uso efetivo do microfone do KT-1 pelo WhatsApp. Nenhuma mudança de app ou telefone nesta correção.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md`.
+- **Status**: ✅ Reprodução audível relatada nos dois cenários. ⏳ Captura WhatsApp/estado do botão após a reprodução ainda sem teste conclusivo.
+
+### 2026-09-29 — Falha real de estabilidade de rota no KT-1 relatada pelo usuário
+- **Descrição**: Com a v1.5.9 em `x_pro_test`, usuário confirma botão vermelho e rota não conectada. Dumpsys repetido mostra BT KT-1 pareado e A2DP conectado, mas alternância entre SCO ativo/preferência HFP aplicada e SCO inativo/preferência nula. Logs repetem RouteReady → seleção novamente; eventos `AUDIO_STATE_CHANGED` e avisos `Oscilação observada sem forçar seleção`. Entre 00:44:17 e 00:44:41 houve `MEDIA_YIELD`/`MEDIA_RESUME` com `musicActive=true`, quando SCO é liberado intencionalmente e a UI marca `RouteDegraded` em vermelho. Fora da reprodução, o SCO também caiu; portanto não atribuir toda falha somente à cor da tela nem declarar conexão estável por um RouteReady transitório. Não foi comprovado que o áudio tenha sido ouvido nem que o microfone do WhatsApp tenha funcionado. Sem nova mudança no aparelho/código após a leitura.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md`.
+- **Status**: ❌ Estabilidade HFP/SCO e experiência de escuta não validadas no KingKong X Pro; diagnóstico em andamento. Necessário diferenciar liberação intencional durante reprodução de quedas fora dela e validar com teste físico.
+
+### 2026-09-29 — Diagnóstico de áudio inaudível e teste reversível do perfil X Pro
+- **Descrição**: Usuário relata que não consegue escutar quando BT Mic Pro está ligado. No aparelho v1.5.9, o perfil restaurado `standard` mantém SCO e keep-alive; `BluetoothRoutingEngine.updateMediaYield()` só libera rota em `x_pro_test`. Feito backup do XML de preferências em `/tmp/opencode/btmicpro-prefs-before-xpro.xml`, substituído apenas `audio_mode_profile=standard` por `x_pro_test` com app parado, reiniciado o app. Log confirma `Perfil ativo: x_pro_test; musicActive=false`, serviço em primeiro plano e RouteReady; leitura sem mídia mostra SCO selecionado, como esperado. Ainda não houve reprodução observada para confirmar `MEDIA_YIELD`/`MEDIA_RESUME` nem audibilidade. Nenhum ajuste de volume/firmware ou código alterado.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md`; XML de backup temporário fora do repositório.
+- **Status**: ⏳ Perfil experimental aplicado de forma reversível; solicitar ao usuário reprodução de áudio com o app ligado e conferir logs durante a reprodução. Seleção SCO sem mídia não comprova saída audível.
+
+### 2026-09-29 — Instalação assistida da v1.5.9 no KingKong X Pro
+- **Descrição**: Após pedido do usuário para prosseguir, assinatura instalada 1.5.7 incompatível com APK 1.5.9 exigiu instalação limpa. Antes, copiados o APK anterior para `/tmp/opencode/btmicpro-installed-1.5.7.apk` e os únicos dois arquivos de dados internos (`shared_prefs/bt_mic_pro_prefs.xml` e `files/profileInstalled`) para `/tmp/opencode/btmicpro-data-before-1.5.9.tar`; arquivo TAR validado. Desinstalada 1.5.7, instalada 1.5.9, restaurados os dois arquivos e conferidos hashes SHA-256 iguais aos do backup. Concedidas novamente apenas as permissões previamente concedidas (RECORD_AUDIO, BLUETOOTH_CONNECT, POST_NOTIFICATIONS). App aberto: serviço em primeiro plano; logs WaitingDevice → CommunicationDeviceSelected → AudioConnecting → RouteReady; dumpsys mostra rota de comunicação HFP/SCO KT-1 e MODE_NORMAL. Não foram enviadas mensagens nem captado áudio. Backups sensíveis permanecem fora do repositório em `/tmp/opencode` para possível recuperação; a restauração de arquivos não recupera automaticamente todo estado do Android após uma reinstalação.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md`; APK instalado a partir de `APK/BTMicPro_v1.5.9.apk`; backups locais temporários fora do projeto.
+- **Status**: ✅ v1.5.9 instalada e rota selecionada; ⏳ reprodução audível e gravação no WhatsApp dependem de teste com o usuário. A configuração do perfil restaurada indica `standard` nos logs (não o perfil experimental X Pro); sem mudança automática de perfil.
+
+### 2026-09-29 — Atualização ADB 1.5.7 → 1.5.9 bloqueada por assinatura
+- **Descrição**: A pedido do usuário, conferida a instalação no KingKong X Pro e comparados com `apksigner` os certificados do APK instalado (1.5.7; SHA-256 `0e84bf660005d97598d81c288ae8687b13b0ba2ff11b2aa891f88f21c82ebb88`) e do APK local 1.5.9 (SHA-256 `f7510eacfde6a21d887029b4003ceeac05c29770830aef0dda5255a24df47429`). Assinaturas incompatíveis impedem atualização preservando dados. Keystore de debug local corresponde à 1.5.9, não à instalada; chave antiga não localizada no projeto/ambiente consultado. Cópia temporária do APK instalado em `/tmp/opencode/btmicpro-installed-1.5.7.apk` apenas para verificação. Nenhum APK instalado/desinstalado, nenhum dado do app apagado.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md` (registro); APK temporário fora do projeto.
+- **Status**: ⛔ Instalação pendente: requer APK 1.5.9 assinado com chave original ou autorização explícita para desinstalação com perda dos dados locais do BT Mic Pro e instalação limpa.
+
+### 2026-09-28 — Auditoria ADB passiva do KingKong X Pro conectado
+- **Descrição**: ADB autorizado (`KKXPRO250829010723`); Android 15/API 35, boot verificado `green`. KT-1 conectado por Bluetooth clássico: saídas SCO e A2DP e entrada SCO listadas no AudioPolicy; A2DP negociado em AAC/44,1 kHz (não é codec de microfone). Serviço BT Mic Pro em primeiro plano e permissões RECORD_AUDIO/BLUETOOTH_CONNECT concedidas, mas versão instalada 1.5.7 (APK local 1.5.9). Em uma leitura transitória a comunicação ativa aparecia em A2DP apesar de SCO interno ativo; leitura subsequente confirmou preferência e comunicação ativas em SCO do KT-1 com MODE_NORMAL. Log do app registrou RouteReady, não prova áudio audível. Instantâneos sem cliente de captura ativo do WhatsApp; não houve nota de voz nem teste acústico. Dumps temporários em `/tmp/opencode/kingkong-{audio,policy,flinger,bluetooth}-baseline.txt` contêm dados do aparelho e não foram incorporados ao repositório. Nenhuma instalação, alteração do telefone ou envio de mensagens.
+- **Arquivos**: `docs/HISTORICO_E_STATUS.md` (registro da auditoria); dumps locais temporários fora do projeto.
+- **Status**: ✅ Conexão e seleção de rota verificadas em leitura; ⏳ reprodução audível, captação do WhatsApp e melhorias da 1.5.9 não validadas. Necessário teste assistido com o usuário e versão 1.5.9 instalada para avaliar a correção de mídia.
+
+### 2026-09-28 — Modo Eco (Sidetone) para KingKong X Pro + Build v1.5.9
+- **Descrição**: Implementado modo eco (sidetone) para o perfil KingKong X Pro: ao ativar o perfil `X_PRO_TEST`, o volume de retorno padrão agora é `0.5f` (50%) em vez de `0.0f` — permite ao usuário ouvir a própria voz no fone. Se houver preferência salva, ela tem prioridade. Sidetone não afeta o roteamento WhatsApp (usa MODE_NORMAL). Gerado APK v1.5.9 com ambiente Linux (JDK 17 + Android SDK 36 baixados). Configurado `local.properties` para SDK em `/tmp/linux_android_sdk`.
+- **Arquivos**: `app/src/main/java/com/btmicpro/ui/MainViewModel.kt` (linhas 123–125); `app/build.gradle.kts` (versionCode=27, versionName=1.5.9); `local.properties`; `APK/BTMicPro_v1.5.9.apk`.
+- **Status**: ✅ Build gerado. APK disponível em `APK/BTMicPro_v1.5.9.apk`. Instalação no dispositivo pendente via ADB.
+
+### 2026-09-27 — Segunda rodada de identificação do WAYXIN KT-1 (somente leitura)
+- **Descrição**: Confirmados via `udevadm` os identificadores USB já conhecidos, sem dado novo de chip; `/dev/sg0` verificado como disco do PC, sem comandos enviados. Pesquisados registros FCC do fabricante (R9, R16 e família X) sem localizar KT-1; fotos de outras famílias não identificam esta unidade. Registrada ressalva de plataforma: AW30N é BLE de modo único e improvável para HFP clássico; família do chip segue desconhecida. Nenhuma escrita, captura adicional ou alteração executada.
+- **Arquivos**: `docs/PESQUISA_KINGKONG_AUDIO.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Status**: Identificação de firmware segue pendente de evidência física ou documentação do fabricante. Sem alteração de código.
+
+### 2026-09-27 — Identificação técnica da plataforma USB e investigação de firmware KT-1
+- **Descrição**: Reinspecionadas interfaces USB/SCSI/serial; consultados SDK oficial Jieli AW30N, fw-Bootloader, documentação de download e jl-uboot-tool. Confirmado que VID/PID/revisão são valores genéricos do SDK, insuficientes para determinar modelo do chip. KT-1 não expõe interface de programação na configuração atual; falta inscrição física do chip ou documentação específica. Nenhum comando de flash, reset ou alteração de firmware executado.
+- **Arquivos**: `docs/PESQUISA_KINGKONG_AUDIO.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Status**: Investigação concluída dentro do acesso disponível; identificação exata do chip e leitura do firmware dependem de evidência adicional. Sem alteração de código.
+
+### 2026-09-27 — Teste de captura USB solicitado pelo usuário
+- **Descrição**: Capturados 10 s do dispositivo MK-01/KT-1 sem mudar controles. Análise PCM: RMS -42,6 dBFS, pico -16,4 dBFS, zero amostras próximas da saturação digital. Conteúdo de fala e eficácia contra vento ainda não confirmados; resultado não extrapolado ao Bluetooth.
+- **Arquivos**: `docs/PESQUISA_KINGKONG_AUDIO.md`; `docs/HISTORICO_E_STATUS.md`; amostra temporária `/tmp/opencode/kt1-teste-usb-01.wav`.
+- **Status**: ✅ Captura e medição concluídas. Sem alteração de código, firmware ou controles de áudio.
+
+### 2026-09-27 — Inspeção USB do WAYXIN KT-1 confirmado pelo usuário
+- **Descrição**: Lidos descritores e controles ALSA do dispositivo Jieli MK-01 (`4c4a:4155`). Identificada captura USB mono/48 kHz/16 bits e controles mute, volume e AGC; AGC reportado desligado. Configuração atual não expõe DFU nem controle de redução de vento. Não houve captura de áudio, alteração de controles ou firmware; efeitos sobre Bluetooth não demonstrados.
+- **Arquivos**: `docs/PESQUISA_KINGKONG_AUDIO.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Status**: ✅ Inspeção de leitura concluída; avaliação acústica e reprogramação permanecem não verificadas. Sem alteração de código.
+
+### 2026-09-27 — Identificação e pesquisa do WAYXIN KT-1
+- **Descrição**: Registrado modelo informado pelo usuário. Pesquisados firmware, atualização, manual e identificação de hardware; encontrados anúncios divergentes, sem confirmação de ferramenta oficial de reprogramação. Documentados limites das fontes e necessidade de etiqueta/manual ou link de compra para identificar revisão.
+- **Arquivos**: `docs/PESQUISA_KINGKONG_AUDIO.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Status**: Pesquisa inicial concluída; reprogramação não comprovada. Nenhuma alteração de código ou firmware.
+
+### 2026-09-27 — Pesquisa de redução de vento na captura WhatsApp / KingKong X Pro
+- **Descrição**: Consultadas fontes Android/AOSP, Bluetooth SIG, Cubot, ITU, Silicon Labs, RNNoise e código de referência WhatsMicFix-LSPosed. Documentadas hipóteses de NREC do acessório, pré-processamento OEM, codecs de voz e instrumentação com root, com limites e experimento comparativo. Identificado trecho aparentemente incompleto no projeto externo; nenhuma validação física ou instalação realizada. Corrigida indicação antiga de pesquisa automática, que não foi configurada nesta sessão.
+- **Arquivos**: `docs/PESQUISA_KINGKONG_AUDIO.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Status**: ✅ Pesquisa documental registrada; aguardando modelo do intercomunicador, firmware/Android, condição de root e amostras para investigação específica. Sem alterações de código; APK atual permanece 1.5.9.
+
+### 2026-09-27 — Versão 1.5.9: liberação de mídia no teste KingKong X Pro
+- **Motivo**: Usuário relatou ausência de som com app ligado e enviou logs de reseleções Bluetooth repetidas; causa física ainda não confirmada.
+- **Descrição**: Perfil X Pro observa `AudioManager.isMusicActive` a cada 300 ms, cancela seleção/recuperação pendente e libera sua solicitação SCO durante mídia. Mantém serviço ligado e retoma preparação do microfone após 1,5 s sem mídia. Oscilações curtas deixam de forçar reseleção imediata. Logs novos `MEDIA_YIELD`, `MEDIA_RESUME` e perfil no início permitem verificar se o aparelho detectou reprodução. Não identifica o app que reproduz nem comprova saída audível; a rota de mídia é decidida pelo Android.
+- **Arquivos**: `app/build.gradle.kts`; `app/src/main/java/com/btmicpro/core/{BluetoothRoutingEngine,AudioModeProfile,MediaRoutePolicy}.kt`; `app/src/test/java/com/btmicpro/core/MediaRoutePolicyTest.kt`; `README.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Entrega**: `APK/BTMicPro_v1.5.9.apk`, assinatura verificada e igual à 1.5.8 (permite atualização). Mantida a 1.5.8 e removida a 1.5.7 conforme limite de dois APKs.
+- **Validação**: `testDebugUnitTest lintDebug assembleDebug` concluídos com BUILD SUCCESSFUL; 33 testes sem falhas; Lint sem erros, 96 avisos. Build Linux com JDK 17/Gradle 8.11.1 e SDK temporário conforme entrada anterior.
+- **Status**: ✅ APK experimental gerado. ⏳ Confirmar no KingKong X Pro se reproduzir áudio gera `MEDIA_YIELD`, se o som volta e se `MEDIA_RESUME` permite preparar o microfone novamente. Não há confirmação física da correção.
+
+### 2026-09-27 — Versão 1.5.8: compatibilidade com prioridade no KingKong X Pro
+- **Descrição**: Adicionado perfil selecionável `KingKong X Pro (Experimental)`: retorno local com atributos de voz, saída Bluetooth explícita, captura MIC, MODE_NORMAL e sem keep-alive. A troca de perfil atualiza o keep-alive imediatamente. Removida solicitação de MODE_IN_CALL e limitada restauração de modo às alterações feitas pelo roteador. Captura tenta 16 kHz primeiro, com alternativas 48/44,1/8 kHz; DSP, frames e reprodução acompanham a taxa escolhida. Corrigida liberação de recursos e de solicitações SCO legadas.
+- **Arquivos**: `app/build.gradle.kts`; `core/AudioCaptureCompatibility.kt`, `core/AudioModeProfile.kt`, `core/LiveAudioMonitor.kt`, `core/CommunicationDeviceManager.kt`, `core/BluetoothRoutingEngine.kt` em `app/src/main/java/com/btmicpro/`; `service/BtMicService.kt`; testes `AudioCaptureCompatibilityTest.kt` e `AudioModeProfileTest.kt`; `README.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Entrega**: `APK/BTMicPro_v1.5.8.apk`; preservado `1.5.7` e removido `1.5.6` conforme limite de dois APKs. Assinatura debug verificada pelo apksigner. A chave debug deste ambiente Linux difere da versão 1.5.7; para instalar sobre ela será necessário desinstalar a anterior (perde preferências locais).
+- **Validação**: `testDebugUnitTest lintDebug assembleDebug` com Gradle 8.11.1/JDK 17 e ferramentas Linux isoladas em `/tmp/opencode`: BUILD SUCCESSFUL; 29 testes, zero falhas; Lint sem erros, 96 avisos. Toolchains Windows e `local.properties` preservados.
+- **Status**: ✅ APK de teste gerado. ⏳ Perfil experimental requer validação física no KingKong X Pro: retorno local, gravação e reprodução no WhatsApp, chamadas e reconexão. Compatibilidade universal não comprovada.
+
+### 2026-09-12 21:46 (BRT) — Auditoria SEO de 100 Domínios Expirados para Redirecionamento 301 (caasexpresss.com)
+- **Descrição**: Executada auditoria em massa diretamente via MCP oficial do SE Ranking (`DATA_getBacklinksSummary`) sobre a base oficial de liberação do Registro.br (mais de 125.000 domínios). Identificados, auditados e curados os 100 melhores domínios expirados para direcionar autoridade para `caasexpresss.com` (logística, motoboy, transportes e entregas rápidas). Todos os domínios foram filtrados contra backlinks tóxicos (sem cassino, jogos, spam ou caracteres asiáticos) e divididos estrategicamente em 3 baldes temáticos:
+  1. **Balde 1 (50 Domínios)**: Nicho direto (Logística, Frete, Entregas, Motoboy, Cargas e Express) para relevância contextual exata.
+  2. **Balde 2 (30 Domínios)**: Sinergia Comercial (E-commerce e Lojas Virtuais) como contratantes de serviços de entrega.
+  3. **Balde 3 (20 Domínios)**: Alta Autoridade Institucional (DA até 67 com links .gov/.edu e telecomunicações).
+- **Arquivos Afetados**:
+  - `scratch/caasexpresss_100_relatorio.md` [NOVO]
+  - `scratch/caasexpresss_perfect_100.json` [NOVO]
+  - `docs/HISTORICO_E_STATUS.md`
+- **Status**: ✅ Auditoria concluída com sucesso no SE Ranking API e relatório de 100 domínios entregue.
+
+### 2026-09-11 08:33 (BRT) — Versão 1.5.7: Seletor de Modo de Áudio (Diagnóstico & Compatibilidade Multi-HAL)
+- **Descrição**: Implementado seletor de modo de áudio acessível nas Configurações com diálogo modal e radio buttons para teste em lote das hipóteses levantadas na pesquisa técnica KingKong 8 vs KingKong X Pro.
+- **Modos Implementados**:
+  1. `Standard (Default)`: Baseline 1.5.3 original (`AudioSource.MIC` + `USAGE_NOTIFICATION_RINGTONE` + `CONTENT_TYPE_MUSIC`).
+  2. `Modo 2 (Voz Direta)`: `AudioSource.MIC` + `USAGE_VOICE_COMMUNICATION` + `CONTENT_TYPE_SPEECH` + roteamento explícito do AudioTrack para o fone Bluetooth SCO (`setPreferredDevice`).
+  3. `Modo 3 (Canal Telefonia)`: `AudioSource.MIC` + `USAGE_VOICE_COMMUNICATION` + `FLAG_AUDIBILITY_ENFORCED` + prioridade máxima de saída.
+  4. `Modo 4 (Sonificação)`: `AudioSource.MIC` + `USAGE_ASSISTANCE_SONIFICATION` + `CONTENT_TYPE_SONIFICATION` + canal de baixa latência.
+  5. `Modo 5 (Comunicação AOSP)`: `AudioSource.VOICE_COMMUNICATION` + `USAGE_VOICE_COMMUNICATION` + amarração estrita ao `CommunicationDevice` ativo.
+- **Arquivos Afetados**:
+  - `app/src/main/java/com/btmicpro/core/AudioModeProfile.kt` [NOVO]
+  - `app/src/main/java/com/btmicpro/core/LiveAudioMonitor.kt`
+  - `app/src/main/java/com/btmicpro/ui/MainViewModel.kt`
+  - `app/src/main/java/com/btmicpro/ui/MainScreen.kt`
+  - `app/src/test/java/com/btmicpro/core/AudioModeProfileTest.kt` [NOVO]
+  - `app/build.gradle.kts` (versionCode 25, versionName 1.5.7)
+  - `APK/BTMicPro_v1.5.7.apk` [NOVO]
+- **Status**: ✅ Testes unitários aprovados (`BUILD SUCCESSFUL`), APK gerado e validado.
+
+### 2026-09-09 — Pesquisa contínua KingKong 8 vs X Pro
+- Criado `docs/PESQUISA_KINGKONG_AUDIO.md` com hipóteses, evidências, fontes e testes.
+- Hipótese líder: `USAGE_NOTIFICATION_RINGTONE` + `CONTENT_TYPE_MUSIC` pode não ser roteado pelo HAL do X Pro; testar variante `USAGE_VOICE_COMMUNICATION` + `CONTENT_TYPE_SPEECH` em APK separado.
+- Baseline 1.5.3 preservado; nenhuma alteração aplicada ao áudio estável.
+- Pesquisa técnica agendada a cada 5 horas; foco somente na solução do retorno Bluetooth no X Pro.
+
+
+
 ## Informações do Projeto
 - **Nome**: BT Mic Pro (Roteador & Gravador Inteligente de Microfone Bluetooth)
 - **Stack**: Android Nativo (Kotlin 2.0+) · Jetpack Compose (Material 3) · Coroutines & StateFlow · Gradle (KTS) · Foreground Services
@@ -447,7 +613,17 @@
   - `docs/HISTORICO_E_STATUS.md`
 - **Status**: ✅ Central de volume duplo e tratamento máximo de áudio finalizados e validados.
 
-### 2026-09-03 00:53 (BRT) — Resolução do Bloqueio do WhatsApp ("Não é possível gravar áudio durante chamada telefônica")
+### 2026-09-03 00:53 (BRT) Resolução BloqueioWhatsApp ("Não é possível gravar áudio durante chamada telefônica")
+
+### 2026-09-04 — V1.5.2 (baseline estável Bluetooth Mono)
+- **Baseline preservado**: `BTMicPro_V8_BLUETOOTH_MONO_CLONE.apk` é o artefato V1.5.2. Não sobrescrever; comparar qualquer alteração futura contra este APK.
+- **Resultado real**: rota HFP/SCO permanece ativa sem cortes. WhatsApp inicialmente mostra “Não é possível gravar áudio durante uma ligação telefônica”, mas libera mensagem de voz após cerca de 10 segundos. Pendência: eliminar atraso sem reintroduzir cortes.
+- **Mudanças**: `LiveAudioMonitor.kt` usa `USAGE_NOTIFICATION_RINGTONE` e `VOICE_COMMUNICATION`; `CommunicationDeviceManager.kt` usa `MODE_IN_COMMUNICATION`; `BluetoothRoutingEngine.kt` tem recuperação SCO após 50 ms; `WhatsAppHandoffManager` removido por causar cortes.
+- **Referências**: `vpsoftware.bluetooth.mono.apk`, `com.jazibkhan.noiseuncanceller.apk`, ambos em `D:/Hermes/cache/documents/`; fonte decompilada: `D:/Hermes/cache/BluetoothService_ref.java`.
+- **Próxima investigação**: instrumentar estados SCO e modo durante os ~10 s de bloqueio. Não mudar modo/SCO sem evidência de log.
+- **Build**: `./gradlew assembleDebug` → `BUILD SUCCESSFUL`.
+
+### 2026-09-03 00:53 (BRT) Resolução BloqueioWhatsApp ("Não é possível gravar áudio durante chamada telefônica")
 - **Descrição**:
   1. **Causa Raiz Diagnosticada**:
      - O WhatsApp verifica internamente se `audioManager.mode == MODE_IN_COMMUNICATION` ou `MODE_IN_CALL`. Ao detectar esse modo, o WhatsApp bloqueia a gravação de mensagens de voz PTT (Push-to-Talk) com o erro "Não é possível gravar áudio durante chamada telefônica".
@@ -626,3 +802,91 @@
 
 
 
+
+## Atualizações - Antigravity (04/09/2026)
+- Implementado Dither Dummy (Inaudível) no LiveAudioMonitor para forçar SCO a 100% de atividade.
+- Bypass do MODE_IN_COMMUNICATION forçado via startBluetoothSco e MODE_NORMAL para destravar WhatsApp.
+- Partial WakeLock isolado atrelado no BtMicService (Modo Sobrevivência 100%).
+- Ver ./docs/reports/ATUALIZACAO_ANTIGRAVITY_MICROFONE.md para detalhes táticos completos.
+
+### 2026-09-06 02:32 (BRT) — Auditoria Completa do Sistema e Correção de Compatibilidade Retroativa
+- **Descrição**:
+  1. **Auditoria Geral e Diagnóstico de Build**:
+     - Identificado e resolvido erro de compilação em `MainViewModel.kt` decorrente da ausência de `useExperimentalKeepAlive` em `BluetoothRoutingEngine.kt`.
+     - Identificados e corrigidos 3 erros bloqueantes do Android Lint (`NewApi` e `InlinedApi`): proteção retroativa de `AudioDeviceInfo.address` para versões anteriores à API 28 (Android 9) e `AudioDeviceInfo.TYPE_BLE_HEADSET` para versões anteriores à API 31 (Android 12).
+  2. **Auditoria das Camadas de Áudio e WhatsApp**:
+     - Confirmada conformidade com o princípio de não-interferência no WhatsApp (sem arquivos temporários, sem injeção falsa de PCM e sem retenção indevida de foco de áudio).
+     - Calibração de ganho acústico (`MediaBoostGain.kt`) validada em teto seguro de 800 mB (8 dB).
+  3. **Validação de Testes e Compilação**:
+     - Suíte de 15 testes unitários executada com 100% de aprovação via `testDebugUnitTest` (`BUILD SUCCESSFUL`).
+     - Android Lint executado com 0 erros via `lintDebug` (`BUILD SUCCESSFUL`).
+     - Novo binário oficial gerado via `assembleDebug` em `BTMicPro_v1.5.2.apk` e `BTMicPro.apk` (~18.9 MB).
+  4. **Documentação Formal de Auditoria**:
+     - Elaborado relatório detalhado em `docs/reports/AUDITORIA_COMPLETA_SISTEMA_V5.md`.
+- **Arquivos Afetados**:
+  - `app/src/main/java/com/btmicpro/core/BluetoothRoutingEngine.kt`
+  - `app/src/main/java/com/btmicpro/core/CommunicationDeviceManager.kt`
+  - `docs/reports/AUDITORIA_COMPLETA_SISTEMA_V5.md` [NOVO]
+  - `docs/HISTORICO_E_STATUS.md`
+  - `BTMicPro.apk`
+  - `BTMicPro_v1.5.2.apk`
+- **Status**: ✅ Auditoria completa realizada, 0 erros no Lint, 15 testes unitários verdes e binário validado.
+
+### 2026-09-06 13:22 (BRT) — Correção de Bugs de Áudio, WhatsApp e Concorrência (Code 15)
+- **Descrição**:
+  1. **Resolução de Conflito de Microfone no WhatsApp (BUG-01, 04, 08, 09)**:
+     - Trocada MediaRecorder.AudioSource.VOICE_COMMUNICATION por MIC no LiveAudioMonitor.kt e USAGE_MEDIA no SilentAudioKeeper.kt, para evitar que o aplicativo se aproprie agressivamente da fonte de áudio e impeça o WhatsApp de capturar o áudio.
+     - Pular gravação no AudioTrack quando null e limitar os loops de erro consecutivos no
+ead() do LiveAudioMonitor.
+  2. **Refinamento de BluetoothRoutingEngine (BUG-03, 10, 14, 15)**:
+     - Marcado valuateAgain e isRunning como @Volatile para garantir que threads do Binder e Handler tenham a visão mais recente do estado de execução do serviço.
+     - Ajustado detecção de BLE (sem presumir áudio automaticamente conectado apenas por ser LE) e incluído fallback para requests SCO legado (
+equestLegacySco).
+  3. **Correções de DSP e Efeitos (BUG-05, 06, 11)**:
+     - Ajustado limiar do soft clipper de 32760f para 29205f (-1 dBFS) e recalculado attack e release no DSP para a taxa certa por blocos (5ms e 200ms corretamente no VoiceProcessingEngine).
+     - Limitado o target gain (LoudnessEnhancer) em MediaBooster.kt com ganho alvo máximo de +8 dB.
+  4. **Correções de Desligamento e Re-tentativa (BUG-12, 13)**:
+     - No BtMicService, escopo da coroutine serviceScope.cancel() foi ajustado antes de chamar o
+outingEngine.stopEngine() para evitar erro de concorrência com o RouterState.
+     - Aumentado budget de recuperação (RecoveryBudget) para 6 tentativas na classe RouteHealth, mitigando reconexões Bluetooth mais lentas.
+  5. **Verificação de Compilação e Testes**:
+     - Suíte de testes unitários (	estDebugUnitTest), análise estática (lintDebug), e build do debug (ssembleDebug) executados com sucesso (0 erros).
+- **Arquivos Afetados**:
+  - pp/src/main/java/com/btmicpro/core/LiveAudioMonitor.kt
+  - pp/src/main/java/com/btmicpro/core/BluetoothRoutingEngine.kt
+  - pp/src/main/java/com/btmicpro/core/SilentAudioKeeper.kt
+  - pp/src/main/java/com/btmicpro/core/VoiceProcessingEngine.kt
+  - pp/src/main/java/com/btmicpro/core/RouteHealth.kt
+  - pp/src/main/java/com/btmicpro/core/MediaBooster.kt
+  - pp/src/main/java/com/btmicpro/service/BtMicService.kt
+  - docs/HISTORICO_E_STATUS.md
+- **Status**: ✅ Todos os 15 bugs relatados corrigidos e validados por suíte de build automática.
+
+### 2026-09-07 (BRT) - Fix corte na gravacao + limpeza do projeto (v1.5.3, code 21)
+- **Descricao**: 1) matchInputEndpoint tolerante em core/RouteHealth.kt (fim da re-selecao SCO no meio da nota de voz); 2) hold 120ms->250ms e pisos 0.15-0.32->0.30-0.40 em core/VoiceProcessingEngine.kt; 3) MainActivity.kt exige RECORD_AUDIO + BLUETOOTH_CONNECT; 4) buffer 4x/2x em core/LiveAudioMonitor.kt. Limpeza de ~765MB (APKs duplicados, zips de setup, temp_rish, graphify-out, .claude-flow, .kotlin, scripts one-shot, 9 docs antigos). Relatorio em docs/reports/MELHORIAS_CORTE_MIC_2026-09-07.md. Regras de APK+historico para LLMs em AGENTS.md e .agents/rules/apk_management.md.
+- **Arquivos Afetados**: app/src/main/java/com/btmicpro/core/RouteHealth.kt, VoiceProcessingEngine.kt, LiveAudioMonitor.kt, MainActivity.kt, AGENTS.md [NOVO], .agents/rules/apk_management.md, docs/reports/MELHORIAS_CORTE_MIC_2026-09-07.md [NOVO], APK/BTMicPro_v1.5.3.apk [NOVO]
+- **Status**: aguardando teste fisico do APK. Pendente: mic 100% ligado (restaurar FOREGROUND_SERVICE_MICROPHONE + holder AudioRecord continuo no BtMicService).
+
+### 2026-09-07 (BRT) - Fechamento da auditoria de ciclo de vida e validacao do APK 1.5.3
+- **Descricao**: Confirmado que `MainActivity.onStop()` encerra o teste local ao sair da tela, `MainViewModel.onCleared()` libera o monitor e `BtMicService` mantem somente a rota, sem `AudioRecord`. O relatorio passou a distinguir a declaracao do foreground service da captura continua efetiva e a registrar que a coexistencia com o WhatsApp exige teste fisico. Testes unitarios, Android Lint e `assembleDebug` foram aprovados; o APK compilado e `APK/BTMicPro_v1.5.3.apk` possuem o mesmo SHA-256 e tamanho de 18.812.112 bytes.
+- **Arquivos Afetados**: `docs/reports/MELHORIAS_CORTE_MIC_2026-09-07.md`, `docs/HISTORICO_E_STATUS.md`
+- **Status**: Auditoria documental concluida; nenhuma alteracao adicional no codigo do app e nenhum novo build necessario nesta etapa.
+
+### 2026-09-07 (BRT) - Captura continua iniciada somente pela interface (v1.5.4, code 22)
+- **Descricao**: Adicionado um modo explicito de inicio do servico para separar inicializacoes automaticas, que preparam somente a rota Bluetooth, das solicitacoes feitas pela interface, que tambem mantem um `AudioRecord` de microfone ativo. A captura usa `MIC`, PCM mono de 16 bits a 16 kHz, descarta os dados sem reproduzir ou processar audio e e encerrada junto com o servico. O tipo de foreground service agora e selecionado dinamicamente para evitar solicitar microfone em boot, reconexao Bluetooth ou reinicio automatico em segundo plano. O botao principal e o botao flutuante solicitam o modo interativo. Incluido teste unitario para o contrato das actions e fallback seguro.
+- **Arquivos Afetados**: `app/build.gradle.kts`, `app/src/main/AndroidManifest.xml`, `app/src/main/java/com/btmicpro/core/MicrophoneCaptureHolder.kt` [NOVO], `app/src/main/java/com/btmicpro/service/BtMicService.kt`, `app/src/main/java/com/btmicpro/service/BtMicServiceStartMode.kt` [NOVO], `app/src/main/java/com/btmicpro/service/FloatingButtonService.kt`, `app/src/main/java/com/btmicpro/ui/MainViewModel.kt`, `app/src/test/java/com/btmicpro/service/BtMicServiceStartModeTest.kt` [NOVO], `docs/HISTORICO_E_STATUS.md`, `APK/BTMicPro_v1.5.4.apk` [NOVO]
+- **Status**: `testDebugUnitTest`, `lintDebug` e `assembleDebug` aprovados. `app-debug.apk` e `APK/BTMicPro_v1.5.4.apk` possuem 18.812.144 bytes e SHA-256 `087AABE517CF0940730C55E65FE622D7A2519F8F05565BFF16171DEAB32FEAE5`. Teste fisico de coexistencia com o WhatsApp permanece necessario.
+
+### 2026-09-07 (BRT) - Tolerancia a oscilacoes transitorias do SCO (v1.5.5, code 23)
+- **Descricao**: Teste fisico no Cubot KingKong X Pro + WAYXIN R6S mostrou rota funcional (`setCommunicationDevice` OK, bidirecional confirmado, `MODE_NORMAL`, sem erros do app) mas com flap: `Quedas de Rota: 32`, `Desconexoes SCO: 34`, `Trocas CommDevice: 65` e reselecao a cada ~6s. Causa: o stack MediaTek oscila o SCO por instantes e cada oscilacao virava teardown + reselecao completa (teardown publica `RouteReady -> CommunicationDeviceSelected -> AudioConnecting -> RouteReady`). Correcao: `shouldTolerateTransientFailure` em `core/RouteHealth.kt` (`TRANSIENT_FAILURE_TOLERANCE = 3`) + contador em `BluetoothRoutingEngine` — ate 3 avaliacoes nao-KEEP consecutivas com rota saudavel sao ignoradas sem tocar estado/contadores; `YIELD_TO_CALL` continua imediato e falhas persistentes seguem o caminho normal. Incluido `TransientToleranceTest` (5 testes).
+- **Arquivos Afetados**: `app/build.gradle.kts`, `app/src/main/java/com/btmicpro/core/RouteHealth.kt`, `app/src/main/java/com/btmicpro/core/BluetoothRoutingEngine.kt`, `app/src/test/java/com/btmicpro/core/TransientToleranceTest.kt` [NOVO], `docs/HISTORICO_E_STATUS.md`, `APK/BTMicPro_v1.5.5.apk` [NOVO]
+- **Status**: `testDebugUnitTest` (22 testes, 0 falhas), `lintDebug` e `assembleDebug` aprovados. `app-debug.apk` e `APK/BTMicPro_v1.5.5.apk` possuem 18.812.140 bytes e SHA-256 `977EE0356C44903BF865443415BE47A17DB33AFC8A6A51175765D8FE433EC198`. `APK/BTMicPro_v1.5.3.apk` removido (retencao: atual + anterior). Pendente: validacao fisica dos contadores estaveis + nota de voz no WhatsApp.
+
+### 2026-09-07 (BRT) - Validacao fisica da v1.5.5 no Cubot + WAYXIN R6S
+- **Descricao**: Instalado `BTMicPro_v1.5.5.apk` no KINGKONG_X_PRO (Android 15). Modo `ROUTE_WITH_MICROPHONE` subiu com FGS `0x90` (microphone+connectedDevice), `mRecordingActive: true` no WAYXIN R6S, bolinha de mic visivel, sem erro do holder. O log prova a correcao: 3x `Oscilacao transitoria ignorada (SELECT, #1..#3)` absorvidas sem teardown e apenas 1 reselecao em ~40s (antes: 1 a cada ~6s). Stop limpo via `onDestroy`, sem `FATAL`. Usuario enviou nota de voz de 0:25 no WhatsApp com o servico em modo microfone — aguardando confirmacao de qual microfone capturou.
+- **Status**: Flap considerado corrigido em campo. Pendente: confirmacao do usuario sobre o audio da nota de voz (intercom vs. celular).
+
+### 2026-09-07 (BRT) - Keep-alive SCO + fim do AudioRecord concorrente (v1.5.6, code 24)
+- **Descricao**: Regressao da v1.5.5: a tolerancia adicionava janela morta de ~9s antes de reselecionar (nota de voz cortava aos ~5s e nao voltava). Causa raiz: sem stream ativo o driver MediaTek desliga o SCO por inatividade + nosso `AudioRecord` competia com o do WhatsApp pelo microfone. Correcao: (1) `SilentAudioKeeper` agora usa `USAGE_VOICE_COMMUNICATION`/`CONTENT_TYPE_SPEECH` (contexto CALL roteado ao SCO) com silencio puro — segura o canal aberto sem som e sem gravar; (2) `BtMicService` liga o keeper quando a rota fica `RouteReady` e desliga em qualquer outro estado (chamada real, perda, setup) e no `onDestroy`; (3) `MicrophoneCaptureHolder` removido do servico e arquivo deletado — WhatsApp dono exclusivo da captura; (4) mantidos `setCommunicationDevice`, reassert silencioso e tolerancia da v1.5.5.
+- **Arquivos Afetados**: `app/build.gradle.kts`, `app/src/main/java/com/btmicpro/core/SilentAudioKeeper.kt`, `app/src/main/java/com/btmicpro/service/BtMicService.kt`, `app/src/main/java/com/btmicpro/core/MicrophoneCaptureHolder.kt` [REMOVIDO], `docs/HISTORICO_E_STATUS.md`, `APK/BTMicPro_v1.5.6.apk` [NOVO]
+- **Status**: `testDebugUnitTest`, `lintDebug` e `assembleDebug` aprovados. `app-debug.apk` e `APK/BTMicPro_v1.5.6.apk` possuem 18.812.140 bytes e SHA-256 `40A3A60E2BC5F988D7CC378FE9C5AE95FBDD9FD8635DF04FE3B777EB5FA87111`. Retencao: `BTMicPro_v1.5.5.apk` + `BTMicPro_v1.5.6.apk`. Pendente: teste fisico de nota de voz longa no WhatsApp.

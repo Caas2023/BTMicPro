@@ -1,10 +1,12 @@
 package com.btmicpro.core
 
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioTrack
-import android.os.Build
-import android.util.Log
+import android.os.Process
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.max
 
 /**
  * Estados operacionais do keep-alive experimental (Item 26 do Prompt Master).
@@ -17,141 +19,124 @@ enum class ScoKeepAliveState {
 }
 
 /**
- * ExperimentalScoKeepAlive — Componente estritamente experimental para manter o canal SCO ativo (Itens 26, 27, 28).
- *
- * Diretrizes:
- * - Não presume mSBC nem promete manter o canal vivo permanentemente sem comprovação.
- * - Desativado por padrão (useExperimentalKeepAlive = false).
- * - Não interfere no áudio do WhatsApp (não causa mute, nem rouba foco, nem emite som perceptível).
- * - Se detectar qualquer falha ou interferência, transita imediatamente para FAILED e libera o AudioTrack.
+ * Playback silencioso que mantém o UID solicitante da rota ativo no AudioDeviceBroker.
+ * Não captura microfone nem solicita foco/modo de chamada. A engine encerra a sessão
+ * antes de liberar a rota para mídia/chamadas. A eficácia depende da política do aparelho.
  */
 class ExperimentalScoKeepAlive {
+    private class Session(val track: AudioTrack, val deviceId: Int?, val profile: AudioModeProfile) {
+        val running = AtomicBoolean(true)
+        @Volatile var state = ScoKeepAliveState.TESTING
+        var worker: Thread? = null
+    }
 
-    var state: ScoKeepAliveState = ScoKeepAliveState.DISABLED
-        private set
+    @Volatile private var session: Session? = null
+    @Volatile private var startFailed = false
+    val state: ScoKeepAliveState
+        get() = session?.state ?: if (startFailed) ScoKeepAliveState.FAILED else ScoKeepAliveState.DISABLED
 
-    private var audioTrack: AudioTrack? = null
-    private var isRunning = false
-    private var playbackThread: Thread? = null
-
-    /**
-     * Inicia o keep-alive experimental com geração de PCM silencioso em baixo consumo.
-     */
     @Synchronized
-    fun start(sampleRate: Int = 16000): Boolean {
-        if (state == ScoKeepAliveState.ACTIVE) {
-            Log.d(TAG, "ExperimentalScoKeepAlive já está ativo.")
-            return true
-        }
-
-        state = ScoKeepAliveState.TESTING
-        Log.i(TAG, "Iniciando teste de keep-alive experimental em ${sampleRate}Hz...")
-
+    fun start(device: AudioDeviceInfo?, profile: AudioModeProfile): Boolean {
+        if (isActive() && session?.deviceId == device?.id && session?.profile == profile) return true
+        stop()
+        if (!profile.useSilenceKeepAlive) return true
+        val sampleRate = profile.keepAliveSampleRate
+        val staticLoop = profile.keepAliveStrategy == KeepAliveStrategy.STATIC_VOICE
+        var track: AudioTrack? = null
         try {
-            val channelConfig = AudioFormat.CHANNEL_OUT_MONO
-            val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-
-            if (minBufferSize <= 0) {
-                Log.w(TAG, "Tamanho de buffer inválido ($minBufferSize) para taxa $sampleRate.")
-                state = ScoKeepAliveState.FAILED
-                return false
+            val minimum = AudioTrack.getMinBufferSize(sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            check(minimum > 0) { "Buffer PCM indisponível: $minimum" }
+            val bufferBytes = if (staticLoop) sampleRate * 2 else
+                max(minimum * 2, sampleRate * profile.keepAliveBufferMs / 1000 * 2)
+            val sonification = profile.keepAliveStrategy == KeepAliveStrategy.STREAM_SONIFICATION
+            track = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(if (sonification) AudioAttributes.USAGE_ASSISTANCE_SONIFICATION else AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(if (sonification) AudioAttributes.CONTENT_TYPE_SONIFICATION else AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                .setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setBufferSizeInBytes(bufferBytes)
+                .setTransferMode(if (staticLoop) AudioTrack.MODE_STATIC else AudioTrack.MODE_STREAM)
+                .build()
+            check(track.state != AudioTrack.STATE_UNINITIALIZED) { "AudioTrack não inicializado" }
+            if (device != null) check(track.setPreferredDevice(device)) { "Saída Bluetooth recusada" }
+            val priming = ShortArray(bufferBytes / 2)
+            val primed = track.write(priming, 0, priming.size, AudioTrack.WRITE_NON_BLOCKING)
+            check(primed > 0 && (!staticLoop || primed == priming.size)) {
+                "Falha ao preencher buffer de silêncio"
             }
-
-            val audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-
-            val format = AudioFormat.Builder()
-                .setSampleRate(sampleRate)
-                .setEncoding(audioFormat)
-                .setChannelMask(channelConfig)
-                .build()
-
-            audioTrack = AudioTrack.Builder()
-                .setAudioAttributes(audioAttributes)
-                .setAudioFormat(format)
-                .setBufferSizeInBytes(minBufferSize * 2)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .apply {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                    }
-                }
-                .build()
-
-            val silenceBuffer = ShortArray(minBufferSize / 2) // Todos zeros = silêncio digital absoluto
-
-            audioTrack?.let { track ->
-                track.play()
-                isRunning = true
-
-                playbackThread = Thread {
-                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
-                    try {
-                        while (isRunning && track.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                            track.write(silenceBuffer, 0, silenceBuffer.size)
-                            Thread.sleep(30) // Reduz taxa de ciclo de CPU
-                        }
-                    } catch (e: InterruptedException) {
-                        Log.d(TAG, "Thread de keep-alive experimental interrompida.")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Erro no loop do keep-alive experimental", e)
-                        state = ScoKeepAliveState.FAILED
-                    }
-                }.apply {
-                    name = "ExperimentalScoKeepAlive"
+            if (staticLoop) check(track.setLoopPoints(0, priming.size, -1) == AudioTrack.SUCCESS) {
+                "Loop estático recusado"
+            }
+            track.play()
+            val current = Session(track, device?.id, profile)
+            session = current
+            current.state = ScoKeepAliveState.ACTIVE
+            if (!staticLoop) {
+                current.worker = Thread({ streamSilence(current, sampleRate) }, "ScoRouteKeepAlive").apply {
                     isDaemon = true
                     start()
                 }
-
-                state = ScoKeepAliveState.ACTIVE
-                Log.i(TAG, "ExperimentalScoKeepAlive iniciado com estado ACTIVE.")
-                return true
             }
-
-            state = ScoKeepAliveState.FAILED
-            return false
-
+            AppLogger.i(TAG, "ACTIVE: estratégia=${profile.keepAliveStrategy}, saída=${device?.id}, ${sampleRate}Hz, bufferBytes=$bufferBytes")
+            return true
         } catch (e: Exception) {
-            Log.e(TAG, "Falha ao inicializar ExperimentalScoKeepAlive", e)
             stop()
-            state = ScoKeepAliveState.FAILED
+            try { track?.release() } catch (_: Exception) { }
+            startFailed = true
+            AppLogger.e(TAG, "Falha ao iniciar sustentação da rota", e)
             return false
         }
     }
 
-    /**
-     * Interrompe o keep-alive e libera recursos de áudio.
-     */
+    private fun streamSilence(current: Session, sampleRate: Int) {
+        try {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
+            val silence = ShortArray(sampleRate / 50)
+            var offset = 0
+            while (current.running.get()) {
+                // WRITE_BLOCKING já dosa o fluxo pelo relógio de áudio. Sleep extra causa underrun.
+                val written = current.track.write(silence, offset, silence.size - offset, AudioTrack.WRITE_BLOCKING)
+                if (!current.running.get()) break
+                check(written > 0) { "AudioTrack.write falhou: $written" }
+                offset = (offset + written) % silence.size
+            }
+        } catch (e: Exception) {
+            if (current.running.get()) {
+                current.state = ScoKeepAliveState.FAILED
+                AppLogger.e(TAG, "Sustentação da rota interrompida", e)
+            }
+        } finally {
+            current.running.set(false)
+            try { current.track.stop() } catch (_: Exception) { }
+            try { current.track.release() } catch (_: Exception) { }
+            if (current.state != ScoKeepAliveState.FAILED) current.state = ScoKeepAliveState.DISABLED
+        }
+    }
+
     @Synchronized
     fun stop() {
-        isRunning = false
-        playbackThread?.interrupt()
-        playbackThread = null
-
-        try {
-            audioTrack?.let { track ->
-                try {
-                    if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                        track.stop()
-                    }
-                } catch (ignored: Exception) {}
-                track.release()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao liberar AudioTrack do keep-alive", e)
-        } finally {
-            audioTrack = null
-            if (state != ScoKeepAliveState.FAILED) {
-                state = ScoKeepAliveState.DISABLED
-            }
-            Log.d(TAG, "ExperimentalScoKeepAlive finalizado. Estado: $state")
+        startFailed = false
+        val previous = session ?: return
+        session = null // Uma thread antiga nunca altera o estado de uma nova sessão.
+        previous.running.set(false)
+        try { previous.track.pause(); previous.track.flush() } catch (_: Exception) { }
+        previous.worker?.interrupt()
+        try { previous.worker?.join(500) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+        if (previous.worker == null) {
+            try { previous.track.stop(); previous.track.release() } catch (_: Exception) { }
         }
+        AppLogger.i(TAG, "DISABLED: sustentação encerrada")
     }
 
-    fun isActive(): Boolean = (state == ScoKeepAliveState.ACTIVE) && (audioTrack != null)
+    fun isActive(): Boolean = session?.let { it.running.get() && it.state == ScoKeepAliveState.ACTIVE } == true
+
+    fun describe(): String = session?.let {
+        try { "${it.state};strategy=${it.profile.keepAliveStrategy};output=${it.track.routedDevice?.id};underruns=${it.track.underrunCount}" }
+        catch (_: Exception) { it.state.name }
+    } ?: state.name
 
     companion object {
         private const val TAG = "BTMIC_SCO_KEEPALIVE"
@@ -162,4 +147,3 @@ class ExperimentalScoKeepAlive {
  * Alias de compatibilidade com o nome legado.
  */
 typealias SilentAudioKeeper = ExperimentalScoKeepAlive
-
