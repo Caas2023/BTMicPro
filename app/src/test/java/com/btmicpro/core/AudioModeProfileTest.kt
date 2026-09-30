@@ -20,6 +20,10 @@ class AudioModeProfileTest {
         assertEquals(AudioModeProfile.MODE_3, AudioModeProfile.fromCode("mode_3"))
         assertEquals(AudioModeProfile.MODE_4, AudioModeProfile.fromCode("mode_4"))
         assertEquals(AudioModeProfile.MODE_5, AudioModeProfile.fromCode("mode_5"))
+        assertEquals(AudioModeProfile.MODE_6, AudioModeProfile.fromCode("mode_6"))
+        assertEquals(AudioModeProfile.MODE_7, AudioModeProfile.fromCode("mode_7"))
+        assertEquals(AudioModeProfile.MODE_8, AudioModeProfile.fromCode("mode_8"))
+        assertEquals(AudioModeProfile.MODE_9, AudioModeProfile.fromCode("mode_9"))
     }
 
     @Test
@@ -27,6 +31,20 @@ class AudioModeProfileTest {
         assertEquals(AudioModeProfile.STANDARD, AudioModeProfile.fromCode(null))
         assertEquals(AudioModeProfile.STANDARD, AudioModeProfile.fromCode("unknown"))
         assertEquals(AudioModeProfile.STANDARD, AudioModeProfile.fromCode(""))
+    }
+
+    @Test
+    fun mode9EcoMatchesMode8AudioWithSlowerPolling() {
+        val eco = AudioModeProfile.fromCode("mode_9")
+        val reference = AudioModeProfile.MODE_8
+        assertEquals(reference.targetAudioMode, eco.targetAudioMode)
+        assertEquals(reference.keepAliveStrategy, eco.keepAliveStrategy)
+        assertEquals(reference.keepAliveSampleRate, eco.keepAliveSampleRate)
+        assertEquals(reference.keepAliveBufferMs, eco.keepAliveBufferMs)
+        assertEquals(reference.mediaResumeDelayMs, eco.mediaResumeDelayMs)
+        assertEquals(reference.releaseForMedia, eco.releaseForMedia)
+        assertEquals(true, eco.ecoPolling)
+        assertEquals(false, reference.ecoPolling)
     }
 
     @Test

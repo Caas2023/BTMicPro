@@ -113,7 +113,8 @@ class LiveAudioMonitor(
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 }
                 AudioModeProfile.X_PRO_TEST, AudioModeProfile.MODE_2,
-                AudioModeProfile.MODE_6, AudioModeProfile.MODE_7, AudioModeProfile.MODE_8 -> {
+                AudioModeProfile.MODE_6, AudioModeProfile.MODE_7, AudioModeProfile.MODE_8,
+                AudioModeProfile.MODE_9 -> {
                     attributesBuilder
                         .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)

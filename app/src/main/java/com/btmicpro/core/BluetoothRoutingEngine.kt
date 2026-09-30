@@ -121,7 +121,10 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
             var lastWatchdog = SystemClock.elapsedRealtime()
             var lastHeartbeat = 0L
             while (isRunning) {
-                delay(300)
+                // Economia de bateria: eventos (captura, reprodução, SCO, dispositivos)
+                // chegam na hora via callbacks; este loop é só rede de segurança.
+                val stable = _routerState.value is RouterState.RouteReady
+                delay(if (selectedProfile.ecoPolling) { if (stable) 3000L else 1000L } else { if (stable) 1500L else 500L })
                 updateRouteControl()
                 // A watchdog observes health; it never resets a failed recovery budget.
                 val now = SystemClock.elapsedRealtime()
@@ -129,7 +132,8 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
                     lastWatchdog = now
                     if (!recoveryBudget.exhausted) triggerAsyncRouteEvaluation()
                 }
-                if (now - lastHeartbeat >= 30000) {
+                val heartbeatInterval = if (stable) { if (selectedProfile.ecoPolling) 180000L else 90000L } else 30000L
+                if (now - lastHeartbeat >= heartbeatInterval) {
                     lastHeartbeat = now
                     logHeartbeat()
                 }
@@ -164,9 +168,12 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
                 triggerAsyncRouteEvaluation()
             }
         }
-        val musicActive = audioManager.isMusicActive
-        val recordingActive = audioActivity.recordingActive
         val callActive = anotherAppCommunicating()
+        // Sem liberação para mídia (ou com chamada ativa), a consulta de música é
+        // inútil: shouldYield retornaria false de qualquer forma. Pula a chamada
+        // binder para não acordar o sistema à toa.
+        val musicActive = if (selectedProfile.releaseForMedia && !callActive) audioManager.isMusicActive else false
+        val recordingActive = audioActivity.recordingActive
         val yield = mediaRoutePolicy.shouldYield(
             selectedProfile.releaseForMedia && !callActive, musicActive, recordingActive,
             SystemClock.elapsedRealtime(), selectedProfile.mediaResumeDelayMs)
@@ -222,7 +229,7 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
 
     private fun logProfile() = AppLogger.i("PROFILE_APPLIED", "code=${selectedProfile.code}; mode=${selectedProfile.targetAudioMode}; " +
         "keeper=${selectedProfile.keepAliveStrategy}; rate=${selectedProfile.keepAliveSampleRate}; bufferMs=${selectedProfile.keepAliveBufferMs}; " +
-        "yieldMedia=${selectedProfile.releaseForMedia}; resumeMs=${selectedProfile.mediaResumeDelayMs}")
+        "yieldMedia=${selectedProfile.releaseForMedia}; resumeMs=${selectedProfile.mediaResumeDelayMs}; eco=${selectedProfile.ecoPolling}")
 
     private fun logHeartbeat() {
         try {

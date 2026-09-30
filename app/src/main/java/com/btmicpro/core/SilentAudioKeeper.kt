@@ -93,8 +93,11 @@ class ExperimentalScoKeepAlive {
 
     private fun streamSilence(current: Session, sampleRate: Int) {
         try {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
-            val silence = ShortArray(sampleRate / 50)
+            // Sem requisito de latência (é silêncio): prioridade baixa + blocos de 100 ms
+            // reduzem os acordos de CPU de ~50/s para ~10/s. O buffer (mínimo 200 ms,
+            // 500 ms no Modo 8/9) absorve atrasos de escalonamento sem underrun audível.
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            val silence = ShortArray(sampleRate / 10)
             var offset = 0
             while (current.running.get()) {
                 // WRITE_BLOCKING já dosa o fluxo pelo relógio de áudio. Sleep extra causa underrun.

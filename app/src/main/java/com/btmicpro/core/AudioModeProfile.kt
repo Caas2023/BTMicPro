@@ -15,7 +15,8 @@ enum class AudioModeProfile(
     val releaseForMedia: Boolean = true,
     val keepAliveSampleRate: Int = 16000,
     val keepAliveBufferMs: Int = 200,
-    val mediaResumeDelayMs: Long = 1500L
+    val mediaResumeDelayMs: Long = 1500L,
+    val ecoPolling: Boolean = false
 ) {
     X_PRO_TEST(
         "x_pro_test", "KingKong X Pro (Experimental)", "Voz sustentada + escuta automática",
@@ -62,6 +63,13 @@ enum class AudioModeProfile(
         "Testa tolerância ao escalonamento com silêncio de voz em buffer maior e espera mais longa entre áudios recebidos. MODE_NORMAL; a captura ativa visível tem prioridade sobre a liberação de mídia.",
         keepAliveBufferMs = 500,
         mediaResumeDelayMs = 2500L
+    ),
+    MODE_9(
+        "mode_9", "Modo 9 (Eco — bateria mínima)", "Como o Modo 8 + economia agressiva",
+        "Mesmos parâmetros de áudio do Modo 8 que funcionou (silêncio de voz 16 kHz, buffer 500 ms, retomada 2,5 s, MODE_NORMAL, liberação para mídia). A diferença é só o ritmo das verificações: com rota estável, a rede de segurança passa de 1,5 s para 3 s e o diagnóstico de 90 s para 180 s. Eventos (captura, reprodução, SCO) continuam imediatos via callbacks. Para economia máxima, desligue o Modo Bar. Valide notas de voz como no Modo 8.",
+        keepAliveBufferMs = 500,
+        mediaResumeDelayMs = 2500L,
+        ecoPolling = true
     );
 
     val useSilenceKeepAlive: Boolean get() = keepAliveStrategy != KeepAliveStrategy.NONE
