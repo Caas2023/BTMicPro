@@ -124,7 +124,7 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
                 // Economia de bateria: eventos (captura, reprodução, SCO, dispositivos)
                 // chegam na hora via callbacks; este loop é só rede de segurança.
                 val stable = _routerState.value is RouterState.RouteReady
-                delay(if (selectedProfile.ecoPolling) { if (stable) 3000L else 1000L } else { if (stable) 1500L else 500L })
+                delay(if (stable) selectedProfile.routeControlStableMs else selectedProfile.routeControlUnstableMs)
                 updateRouteControl()
                 // A watchdog observes health; it never resets a failed recovery budget.
                 val now = SystemClock.elapsedRealtime()
@@ -229,7 +229,8 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
 
     private fun logProfile() = AppLogger.i("PROFILE_APPLIED", "code=${selectedProfile.code}; mode=${selectedProfile.targetAudioMode}; " +
         "keeper=${selectedProfile.keepAliveStrategy}; rate=${selectedProfile.keepAliveSampleRate}; bufferMs=${selectedProfile.keepAliveBufferMs}; " +
-        "yieldMedia=${selectedProfile.releaseForMedia}; resumeMs=${selectedProfile.mediaResumeDelayMs}; eco=${selectedProfile.ecoPolling}")
+        "yieldMedia=${selectedProfile.releaseForMedia}; resumeMs=${selectedProfile.mediaResumeDelayMs}; eco=${selectedProfile.ecoPolling}; " +
+        "pollStableMs=${selectedProfile.routeControlStableMs}; pollUnstableMs=${selectedProfile.routeControlUnstableMs}")
 
     private fun logHeartbeat() {
         try {

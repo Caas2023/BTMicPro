@@ -140,9 +140,10 @@ fun CleanHomeScreen(
     val isRouterEnabled by viewModel.isRouterEnabled.collectAsState()
     val mediaVolume by viewModel.mediaVolume.collectAsState()
     val callVolume by viewModel.callVolume.collectAsState()
-    val isVolumeSyncEnabled by viewModel.isVolumeSyncEnabled.collectAsState()
     val isFloatingButtonEnabled by viewModel.isFloatingButtonEnabled.collectAsState()
+    val currentAudioMode by viewModel.audioModeProfile.collectAsState()
     val scrollState = rememberScrollState()
+    var showAudioModeDialog by remember { mutableStateOf(false) }
 
     val isRouteReady = routerState is RouterState.RouteReady || routerState is RouterState.RoutingVerified
 
@@ -219,59 +220,6 @@ fun CleanHomeScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Card Informativo: Áudio Bidirecional Automático (Estilo Ligação)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF161616)),
-            border = androidx.compose.foundation.BorderStroke(
-                width = 1.dp,
-                color = if (isRouteReady) PrimaryNeon.copy(alpha = 0.4f) else Color(0xFF282828)
-            )
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(if (isRouteReady) PrimaryNeon.copy(alpha = 0.15f) else Color(0xFF222222)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isRouteReady) Icons.Default.CheckCircle else Icons.Default.Bluetooth,
-                        contentDescription = null,
-                        tint = if (isRouteReady) PrimaryNeon else Color.Gray,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (isRouteReady) "ROTA DE COMUNICAÇÃO PREPARADA" else "SISTEMA EM ESPERA",
-                        color = if (isRouteReady) PrimaryNeon else Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = if (isRouteReady) {
-                            "O Android selecionou o intercom para comunicação. Confirme com uma nota de voz no WhatsApp."
-                        } else {
-                            "Ao ligar, o app solicita e monitora a rota Bluetooth sem capturar o microfone."
-                        },
-                        color = Color.LightGray,
-                        fontSize = 9.sp,
-                        lineHeight = 15.sp
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
         // Botão de Sobrepor (Trazido das configs para ficar compacto na home)
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -303,25 +251,32 @@ fun CleanHomeScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Central de Volume Duplo (Mídia e Chamada)
-        DualVolumeControlCard(
+        UnifiedVolumeControlCard(
             mediaVolume = mediaVolume,
             maxMediaVolume = viewModel.maxMediaVolume,
             callVolume = callVolume,
             maxCallVolume = viewModel.maxCallVolume,
-            isSyncEnabled = isVolumeSyncEnabled,
-            onMediaVolumeChange = { viewModel.setMediaVolume(it) },
-            onCallVolumeChange = { viewModel.setCallVolume(it) },
-            onStepMedia = { viewModel.stepMediaVolume(it) },
-            onStepCall = { viewModel.stepCallVolume(it) },
-            onToggleSync = { viewModel.setVolumeSyncEnabled(it) }
+            onVolumePercentChange = { viewModel.setUnifiedVolumePercent(it) },
+            onStep = { viewModel.stepUnifiedVolume(it) }
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // BOTAO REMOVIDO A PEDIDO DO USUARIO
-        // Para entrar nas configurações futuramente, pode-se implementar um clique longo na versão.
+        AudioModeHomeCard(
+            currentAudioMode = currentAudioMode,
+            onClick = { showAudioModeDialog = true }
+        )
 
+        if (showAudioModeDialog) {
+            AudioModeSelectorDialog(
+                currentAudioMode = currentAudioMode,
+                onSelect = { profile ->
+                    viewModel.setAudioModeProfile(profile)
+                    showAudioModeDialog = false
+                },
+                onDismiss = { showAudioModeDialog = false }
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -335,6 +290,18 @@ fun CleanHomeScreen(
 
 /**
  * Tela Secundária de Configurações, Diagnósticos e Flight Recorder.
+ */
+
+private enum class SettingsPage(val title: String) {
+    MENU("Configurações"),
+    LOGS("Logs"),
+    DIAGNOSTICS("Diagnóstico"),
+    AUDIO_LOCAL("Áudio local"),
+    SYSTEM("Sistema")
+}
+
+/**
+ * Configurações em páginas separadas, sem scroll geral.
  */
 @Composable
 fun SettingsScreen(
@@ -355,23 +322,22 @@ fun SettingsScreen(
     val logsList by viewModel.logsList.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
     val showDiagnostics by viewModel.showDiagnosticsDialog.collectAsState()
-    val scrollState = rememberScrollState()
+    val returnVolume by viewModel.returnVolume.collectAsState()
+    var page by remember { mutableStateOf(SettingsPage.MENU) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // Top bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp),
+                .padding(bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
-                onClick = onBack,
+                onClick = { if (page == SettingsPage.MENU) onBack() else page = SettingsPage.MENU },
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
@@ -379,548 +345,45 @@ fun SettingsScreen(
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = PrimaryNeon)
             }
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = "Configurações & Diagnósticos",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
-            )
-        }
-
-        // 1. FLIGHT RECORDER (Logs em Tempo Real)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF141414)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
-        ) {
-            Column(modifier = Modifier.padding(6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("📋 FLIGHT RECORDER (LOGS)", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                    Text("${logsList.size} recentes", color = Color.Gray, fontSize = 9.sp)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(100.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF0C0C0C))
-                        .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
-                        .padding(6.dp)
-                ) {
-                    val terminalScroll = rememberScrollState()
-                    LaunchedEffect(logsList.size) {
-                        if (logsList.isNotEmpty()) {
-                            terminalScroll.scrollTo(terminalScroll.maxValue)
-                        }
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(terminalScroll)
-                    ) {
-                        if (logsList.isEmpty()) {
-                            Text("Aguardando eventos...", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                        } else {
-                            logsList.takeLast(120).forEach { line ->
-                                val color = when {
-                                    line.contains("[ERROR]") -> AccentRed
-                                    line.contains("[WARN ]") -> WarningAmber
-                                    line.contains("[AUDIO]") -> PrimaryNeon
-                                    else -> Color(0xFFCCCCCC)
-                                }
-                                Text(line, color = color, fontSize = 9.sp, fontFamily = FontFamily.Monospace, lineHeight = 12.sp)
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            viewModel.copyAllLogs(context)
-                            Toast.makeText(context, "Logs recentes copiados. Use Exportar ZIP para todos os dias.", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242424)),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(12.dp), tint = PrimaryNeon)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Copiar", fontSize = 9.sp, color = Color.White)
-                    }
-                    Button(
-                        onClick = { viewModel.shareLogs(context) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242424)),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.weight(1.2f)
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(12.dp), tint = PrimaryNeon)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Exportar ZIP", fontSize = 9.sp, color = Color.White)
-                    }
-                    Button(
-                        onClick = {
-                            viewModel.clearLogs()
-                            Toast.makeText(context, "Logs limpos!", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF331A1A)),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.weight(0.9f)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(12.dp), tint = AccentRed)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Limpar", fontSize = 9.sp, color = Color.White)
-                    }
-                }
-                Text(com.btmicpro.core.AppLogger.storageStatus(), color = Color.Gray, fontSize = 9.sp)
-                TextButton(onClick = {
-                    viewModel.markAudioProblem()
-                    Toast.makeText(context, "Falha marcada nos logs com horário e modo", Toast.LENGTH_SHORT).show()
-                }) {
-                    Text("Marcar corte/falha agora", color = WarningAmber, fontSize = 11.sp)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 2. DIAGNÓSTICO DO HARDWARE & ROTA V5
-        Button(
-            onClick = { viewModel.openDiagnostics() },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E281E)),
-            shape = RoundedCornerShape(10.dp)
-        ) {
-            Icon(Icons.Default.Assessment, contentDescription = null, tint = PrimaryNeon)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("ABRIR DIAGNÓSTICO DE HARDWARE V5 🛠️", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 3. STATUS DA ROTA
-        StatusTelemetryCard(routerState = routerState, whatsappStatus = whatsappStatus)
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 4. PRESETS DO MOTOCICLISTA
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.DarkGray)
-        ) {
-            Column(modifier = Modifier.padding(6.dp)) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text(page.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                 Text(
-                    "PERFIL DE TRATAMENTO DE ÁUDIO 🏍️",
-                    color = PrimaryNeon,
-                    fontWeight = FontWeight.Bold,
+                    text = if (page == SettingsPage.MENU) "Escolha uma área" else "Página única • sem rolagem geral",
+                    color = Color.Gray,
                     fontSize = 9.sp
                 )
-                Text(
-                    selectedPreset.description,
-                    color = Color.Gray,
-                    fontSize = 9.sp,
-                    modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    RiderAudioPreset.values().take(3).forEach { preset ->
-                        FilterChip(
-                            selected = selectedPreset == preset,
-                            onClick = { viewModel.setRiderPreset(preset) },
-                            label = { Text(preset.displayName, fontSize = 9.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = PrimaryNeon,
-                                selectedLabelColor = Color.Black,
-                                containerColor = Color(0xFF2B2B2B),
-                                labelColor = Color.White
-                            )
-                        )
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    RiderAudioPreset.values().drop(3).forEach { preset ->
-                        FilterChip(
-                            selected = selectedPreset == preset,
-                            onClick = { viewModel.setRiderPreset(preset) },
-                            label = { Text(preset.displayName, fontSize = 9.sp, fontWeight = FontWeight.Bold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = PrimaryNeon,
-                                selectedLabelColor = Color.Black,
-                                containerColor = Color(0xFF2B2B2B),
-                                labelColor = Color.White
-                            )
-                        )
-                    }
-                }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 4.5 TESTE DE RETORNO DO MICROFONE (SIDETONE OPCIONAL)
-        val returnVolume by viewModel.returnVolume.collectAsState()
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
-        ) {
-            Column(modifier = Modifier.padding(6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Volume de Retorno (Sidetone de Teste)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                        Text("Padrão: 0% (Mudo recomendado para pilotar sem eco)", color = Color.Gray, fontSize = 9.sp)
-                    }
-                    Text(
-                        text = if (returnVolume <= 0.01f) "0% (Mudo)" else "${(returnVolume * 100).toInt()}%",
-                        fontSize = 9.sp,
-                        color = if (returnVolume <= 0.01f) PrimaryNeon else WarningAmber,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Slider(
-                    value = returnVolume,
-                    onValueChange = { viewModel.setReturnVolume(it) },
-                    valueRange = 0.0f..1.0f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = PrimaryNeon,
-                        activeTrackColor = PrimaryNeon,
-                        inactiveTrackColor = Color.DarkGray
-                    )
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Teste local estilo Safe Headphones", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text(
-                            "Captura, trata e reproduz o microfone somente dentro do BT Mic Pro. Desative antes de usar o WhatsApp.",
-                            color = Color.Gray,
-                            fontSize = 10.sp
-                        )
-                    }
-                    Switch(
-                        checked = isLiveMonitorEnabled,
-                        onCheckedChange = { viewModel.toggleLiveMonitor(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = PrimaryNeon
-                        )
-                    )
-                }
-
-                liveMonitorError?.let { error ->
-                    Text(
-                        text = error,
-                        color = AccentRed,
-                        fontSize = 10.sp,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                }
-
-                Text(
-                    text = if (returnVolume <= 0.01f) {
-                        "🔇 Em 0%: o teste captura para diagnóstico, mas não reproduz retorno."
-                    } else {
-                        "🔊 Retorno audível: use temporariamente para testar o microfone; pode haver latência Bluetooth."
-                    },
-                    fontSize = 9.sp,
-                    color = Color.LightGray
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 5. AJUSTES DO SISTEMA
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
-        ) {
-            Column(modifier = Modifier.padding(6.dp)) {
-                Text("⚙️ AJUSTES DO SISTEMA", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Iniciar com o Celular", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                        Text("Liga automaticamente ao reiniciar", color = Color.Gray, fontSize = 9.sp)
-                    }
-                    Switch(
-                        checked = autoStartOnBoot,
-                        onCheckedChange = { viewModel.setAutoStartOnBoot(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = PrimaryNeon,
-                            uncheckedThumbColor = Color.LightGray,
-                            uncheckedTrackColor = Color.DarkGray
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Botão Flutuante Sobreposto", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                        Text("Controle rápido sobre o WhatsApp", color = Color.Gray, fontSize = 9.sp)
-                    }
-                    Switch(
-                        checked = isFloatingButtonEnabled,
-                        onCheckedChange = { viewModel.toggleFloatingButton(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = PrimaryNeon,
-                            uncheckedThumbColor = Color.LightGray,
-                            uncheckedTrackColor = Color.DarkGray
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("RAW Audio Mode", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                        Text("Bypass de filtros DSP", color = Color.Gray, fontSize = 9.sp)
-                    }
-                    Switch(
-                        checked = isRawAudioMode,
-                        onCheckedChange = { viewModel.setRawAudioMode(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = PrimaryNeon,
-                            uncheckedThumbColor = Color.LightGray,
-                            uncheckedTrackColor = Color.DarkGray
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Modo Bar 🔊", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                        Text("Aumenta o volume dos áudios recebidos", color = Color.Gray, fontSize = 9.sp)
-                    }
-                    Switch(
-                        checked = isBarModeEnabled,
-                        onCheckedChange = { viewModel.toggleBarMode(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = PrimaryNeon,
-                            uncheckedThumbColor = Color.LightGray,
-                            uncheckedTrackColor = Color.DarkGray
-                        )
-                    )
-                }
-
-                if (isBarModeEnabled) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text("Ganho Extra: +${(barBoostLevel * 8 / 100)} dB", color = Color.LightGray, fontSize = 9.sp)
-                    Slider(
-                        value = barBoostLevel.toFloat(),
-                        onValueChange = { viewModel.setBarBoostLevel(it.toInt()) },
-                        valueRange = 0f..100f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = PrimaryNeon,
-                            activeTrackColor = PrimaryNeon,
-                            inactiveTrackColor = Color.DarkGray
-                        )
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 6. MODO DE ÁUDIO & COMPATIBILIDADE (TESTE DE MODOS)
-        var showAudioModeDialog by remember { mutableStateOf(false) }
-        val currentAudioMode by viewModel.audioModeProfile.collectAsState()
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showAudioModeDialog = true },
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
-        ) {
-            Column(modifier = Modifier.padding(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text(
-                            text = "Modo de áudio",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Se o app não funcionar, tente um modo diferente",
-                            color = Color.Gray,
-                            fontSize = 9.sp
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF2B2B2B)
-                    ) {
-                        Text(
-                            text = currentAudioMode.title,
-                            color = PrimaryNeon,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        if (showAudioModeDialog) {
-            AlertDialog(
-                onDismissRequest = { showAudioModeDialog = false },
-                title = {
-                    Text(
-                        text = "Selecionar modo",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        AudioModeProfile.values().forEach { profile ->
-                            val isSelected = currentAudioMode == profile
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        viewModel.setAudioModeProfile(profile)
-                                        showAudioModeDialog = false
-                                    },
-                                color = if (isSelected) Color(0xFF252525) else Color.Transparent,
-                                border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, PrimaryNeon.copy(alpha = 0.5f)) else null,
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 6.dp, horizontal = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    RadioButton(
-                                        selected = isSelected,
-                                        onClick = {
-                                            viewModel.setAudioModeProfile(profile)
-                                            showAudioModeDialog = false
-                                        },
-                                        colors = RadioButtonDefaults.colors(
-                                            selectedColor = PrimaryNeon,
-                                            unselectedColor = Color.Gray
-                                        )
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Column {
-                                        Text(
-                                            text = profile.title,
-                                            color = if (isSelected) PrimaryNeon else Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp
-                                        )
-                                        Text(
-                                            text = profile.subtitle,
-                                            color = Color.LightGray,
-                                            fontSize = 9.sp
-                                        )
-                                        Text(
-                                            text = profile.details,
-                                            color = Color.Gray,
-                                            fontSize = 8.sp,
-                                            lineHeight = 11.sp
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = { showAudioModeDialog = false }) {
-                        Text("Cancelar", color = Color.LightGray, fontSize = 11.sp)
-                    }
-                },
-                containerColor = Color(0xFF1E1E1E),
-                shape = RoundedCornerShape(14.dp)
+        when (page) {
+            SettingsPage.MENU -> SettingsMenuPage(onOpen = { page = it })
+            SettingsPage.LOGS -> LogsSettingsPage(context, viewModel, logsList)
+            SettingsPage.DIAGNOSTICS -> DiagnosticsSettingsPage(routerState, whatsappStatus) { viewModel.openDiagnostics() }
+            SettingsPage.AUDIO_LOCAL -> AudioLocalSettingsPage(
+                selectedPreset = selectedPreset,
+                returnVolume = returnVolume,
+                isLiveMonitorEnabled = isLiveMonitorEnabled,
+                liveMonitorError = liveMonitorError,
+                onPreset = { viewModel.setRiderPreset(it) },
+                onReturnVolume = { viewModel.setReturnVolume(it) },
+                onToggleMonitor = { viewModel.toggleLiveMonitor(it) }
+            )
+            SettingsPage.SYSTEM -> SystemSettingsPage(
+                autoStartOnBoot = autoStartOnBoot,
+                isFloatingButtonEnabled = isFloatingButtonEnabled,
+                isRawAudioMode = isRawAudioMode,
+                isBarModeEnabled = isBarModeEnabled,
+                barBoostLevel = barBoostLevel,
+                onAutoStart = { viewModel.setAutoStartOnBoot(it) },
+                onFloating = { viewModel.toggleFloatingButton(it) },
+                onRaw = { viewModel.setRawAudioMode(it) },
+                onBar = { viewModel.toggleBarMode(it) },
+                onBoost = { viewModel.setBarBoostLevel(it) }
             )
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
     }
 
-    // Modal de Diagnóstico
     if (showDiagnostics && diagnostics != null) {
         AudioDiagnosticsDialogV5(
             data = diagnostics!!,
@@ -943,9 +406,7 @@ fun SettingsScreen(
                 viewModel.copyAllLogs(context)
                 Toast.makeText(context, "Todos os logs foram copiados!", Toast.LENGTH_SHORT).show()
             },
-            onShareLogs = {
-                viewModel.shareLogs(context)
-            },
+            onShareLogs = { viewModel.shareLogs(context) },
             onClearLogs = {
                 viewModel.clearLogs()
                 Toast.makeText(context, "Logs limpos com sucesso!", Toast.LENGTH_SHORT).show()
@@ -955,6 +416,209 @@ fun SettingsScreen(
                 Toast.makeText(context, "Status atualizado: Validado pelo Usuário!", Toast.LENGTH_SHORT).show()
             }
         )
+    }
+}
+
+@Composable
+private fun SettingsMenuPage(onOpen: (SettingsPage) -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SettingsMenuButton("📋 Logs", "Flight Recorder, ZIP e marcação de falha") { onOpen(SettingsPage.LOGS) }
+        SettingsMenuButton("🛠️ Diagnóstico", "Hardware, rota e status do WhatsApp") { onOpen(SettingsPage.DIAGNOSTICS) }
+        SettingsMenuButton("🏍️ Áudio local", "Retorno local, presets e teste de microfone") { onOpen(SettingsPage.AUDIO_LOCAL) }
+        SettingsMenuButton("⚙️ Sistema", "Inicialização, botão flutuante, RAW e Modo Bar") { onOpen(SettingsPage.SYSTEM) }
+        Spacer(modifier = Modifier.weight(1f))
+        Text("BT Mic Pro v${BuildConfig.VERSION_NAME}", color = Color.DarkGray, fontSize = 9.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+    }
+}
+
+@Composable
+private fun SettingsMenuButton(title: String, subtitle: String, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().height(86.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF161616)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.Center) {
+            Text(title, color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(subtitle, color = Color.LightGray, fontSize = 10.sp)
+        }
+    }
+}
+
+@Composable
+private fun LogsSettingsPage(context: Context, viewModel: MainViewModel, logsList: List<String>) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Card(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF141414)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("FLIGHT RECORDER", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                    Text("${logsList.size} recentes", color = Color.Gray, fontSize = 9.sp)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(8.dp)).background(Color(0xFF0C0C0C)).padding(6.dp)
+                ) {
+                    val terminalScroll = rememberScrollState()
+                    LaunchedEffect(logsList.size) { if (logsList.isNotEmpty()) terminalScroll.scrollTo(terminalScroll.maxValue) }
+                    Column(modifier = Modifier.fillMaxSize().verticalScroll(terminalScroll)) {
+                        if (logsList.isEmpty()) {
+                            Text("Aguardando eventos...", color = Color.Gray, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        } else {
+                            logsList.takeLast(120).forEach { line ->
+                                val color = when {
+                                    line.contains("[ERROR]") -> AccentRed
+                                    line.contains("[WARN ]") -> WarningAmber
+                                    line.contains("[AUDIO]") -> PrimaryNeon
+                                    else -> Color(0xFFCCCCCC)
+                                }
+                                Text(line, color = color, fontSize = 9.sp, fontFamily = FontFamily.Monospace, lineHeight = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(onClick = {
+                viewModel.copyAllLogs(context)
+                Toast.makeText(context, "Logs recentes copiados. Use Exportar ZIP para todos os dias.", Toast.LENGTH_SHORT).show()
+            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242424)), modifier = Modifier.weight(1f)) { Text("Copiar", fontSize = 9.sp) }
+            Button(onClick = { viewModel.shareLogs(context) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242424)), modifier = Modifier.weight(1.2f)) { Text("ZIP", fontSize = 9.sp) }
+            Button(onClick = {
+                viewModel.clearLogs()
+                Toast.makeText(context, "Logs limpos!", Toast.LENGTH_SHORT).show()
+            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF331A1A)), modifier = Modifier.weight(1f)) { Text("Limpar", fontSize = 9.sp) }
+        }
+        Text(com.btmicpro.core.AppLogger.storageStatus(), color = Color.Gray, fontSize = 9.sp)
+        TextButton(onClick = {
+            viewModel.markAudioProblem()
+            Toast.makeText(context, "Falha marcada nos logs com horário e modo", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Marcar corte/falha agora", color = WarningAmber, fontSize = 11.sp) }
+    }
+}
+
+@Composable
+private fun DiagnosticsSettingsPage(routerState: RouterState, whatsappStatus: WhatsAppRouteStatus, onOpenDiagnostics: () -> Unit) {
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Button(
+            onClick = onOpenDiagnostics,
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E281E)),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Icon(Icons.Default.Assessment, contentDescription = null, tint = PrimaryNeon)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("ABRIR DIAGNÓSTICO V5", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+        StatusTelemetryCard(routerState = routerState, whatsappStatus = whatsappStatus)
+    }
+}
+
+@Composable
+private fun AudioLocalSettingsPage(
+    selectedPreset: RiderAudioPreset,
+    returnVolume: Float,
+    isLiveMonitorEnabled: Boolean,
+    liveMonitorError: String?,
+    onPreset: (RiderAudioPreset) -> Unit,
+    onReturnVolume: (Float) -> Unit,
+    onToggleMonitor: (Boolean) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))) {
+            Column(modifier = Modifier.padding(8.dp)) {
+                Text("PERFIL DE ÁUDIO 🏍️", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                Text(selectedPreset.description, color = Color.Gray, fontSize = 9.sp, maxLines = 2)
+                Spacer(modifier = Modifier.height(6.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    RiderAudioPreset.values().toList().chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            row.forEach { preset ->
+                                FilterChip(
+                                    selected = selectedPreset == preset,
+                                    onClick = { onPreset(preset) },
+                                    label = { Text(preset.displayName, fontSize = 8.sp, fontWeight = FontWeight.Bold) },
+                                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = PrimaryNeon, selectedLabelColor = Color.Black, containerColor = Color(0xFF2B2B2B), labelColor = Color.White)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))) {
+            Column(modifier = Modifier.padding(8.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Retorno local de teste", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("0% recomendado para pilotar; afeta só teste local", color = Color.Gray, fontSize = 9.sp)
+                    }
+                    Text(if (returnVolume <= 0.01f) "0%" else "${(returnVolume * 100).toInt()}%", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+                Slider(value = returnVolume, onValueChange = onReturnVolume, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = PrimaryNeon, activeTrackColor = PrimaryNeon, inactiveTrackColor = Color.DarkGray))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Teste local do microfone", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("Desative antes do WhatsApp", color = Color.Gray, fontSize = 9.sp)
+                    }
+                    Switch(checked = isLiveMonitorEnabled, onCheckedChange = onToggleMonitor, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PrimaryNeon))
+                }
+                liveMonitorError?.let { Text(it, color = AccentRed, fontSize = 9.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SystemSettingsPage(
+    autoStartOnBoot: Boolean,
+    isFloatingButtonEnabled: Boolean,
+    isRawAudioMode: Boolean,
+    isBarModeEnabled: Boolean,
+    barBoostLevel: Int,
+    onAutoStart: (Boolean) -> Unit,
+    onFloating: (Boolean) -> Unit,
+    onRaw: (Boolean) -> Unit,
+    onBar: (Boolean) -> Unit,
+    onBoost: (Int) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsToggleRow("Iniciar com o celular", "Liga automaticamente ao reiniciar", autoStartOnBoot, onAutoStart)
+        SettingsToggleRow("Botão flutuante", "Controle rápido sobre o WhatsApp", isFloatingButtonEnabled, onFloating)
+        SettingsToggleRow("RAW Audio Mode", "Bypass de filtros DSP no teste local", isRawAudioMode, onRaw)
+        SettingsToggleRow("Modo Bar 🔊", "Aumenta áudios recebidos; desligue para economizar", isBarModeEnabled, onBar)
+        if (isBarModeEnabled) {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Text("Ganho Extra: +${(barBoostLevel * 8 / 100)} dB", color = Color.LightGray, fontSize = 10.sp)
+                    Slider(value = barBoostLevel.toFloat(), onValueChange = { onBoost(it.toInt()) }, valueRange = 0f..100f, colors = SliderDefaults.colors(thumbColor = PrimaryNeon, activeTrackColor = PrimaryNeon, inactiveTrackColor = Color.DarkGray))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                Text(subtitle, color = Color.Gray, fontSize = 9.sp)
+            }
+            Switch(checked = checked, onCheckedChange = onCheckedChange, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PrimaryNeon, uncheckedThumbColor = Color.LightGray, uncheckedTrackColor = Color.DarkGray))
+        }
     }
 }
 
@@ -1381,256 +1045,154 @@ data class PromoBannerItem(
     val neonColor: Color
 )
 
+
 @Composable
-fun DualVolumeControlCard(
+fun UnifiedVolumeControlCard(
     mediaVolume: Int,
     maxMediaVolume: Int,
     callVolume: Int,
     maxCallVolume: Int,
-    isSyncEnabled: Boolean,
-    onMediaVolumeChange: (Int) -> Unit,
-    onCallVolumeChange: (Int) -> Unit,
-    onStepMedia: (Boolean) -> Unit,
-    onStepCall: (Boolean) -> Unit,
-    onToggleSync: (Boolean) -> Unit
+    onVolumePercentChange: (Int) -> Unit,
+    onStep: (Boolean) -> Unit
 ) {
+    val mediaPercent = ((mediaVolume.toFloat() / maxMediaVolume.coerceAtLeast(1)) * 100).roundToInt()
+    val callPercent = ((callVolume.toFloat() / maxCallVolume.coerceAtLeast(1)) * 100).roundToInt()
+    val unifiedPercent = ((mediaPercent + callPercent) / 2).coerceIn(0, 100)
+    var localValue by remember(unifiedPercent) { mutableFloatStateOf(unifiedPercent.toFloat()) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF161616)),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF282828))
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(6.dp)
-        ) {
-            // Cabeçalho da Central de Volumes
+        Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.GraphicEq,
-                        contentDescription = null,
-                        tint = PrimaryNeon,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "VOLUME DUPLO",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 9.sp,
-                        letterSpacing = 0.5.sp
-                    )
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = if (isSyncEnabled) "Sincronizado" else "Separado",
-                        color = if (isSyncEnabled) PrimaryNeon else Color.Gray,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Icon(Icons.Default.GraphicEq, contentDescription = null, tint = PrimaryNeon, modifier = Modifier.size(17.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Switch(
-                        checked = isSyncEnabled,
-                        onCheckedChange = onToggleSync,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = PrimaryNeon,
-                            checkedTrackColor = PrimaryNeon.copy(alpha = 0.3f),
-                            uncheckedThumbColor = Color.Gray,
-                            uncheckedTrackColor = Color(0xFF222222)
-                        ),
-                        modifier = Modifier.height(6.dp)
-                    )
+                    Column {
+                        Text("VOLUME", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                        Text("Mídia + intercom juntos", color = Color.Gray, fontSize = 9.sp)
+                    }
                 }
+                Text("${localValue.roundToInt()}%", color = PrimaryNeon, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
 
-Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // 🎵 Canal 1: Volume de Mídia (WhatsApp / GPS / Músicas)
-            val mediaPercent = ((mediaVolume.toFloat() / maxMediaVolume.coerceAtLeast(1)) * 100).toInt()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = null,
-                        tint = Color(0xFF4FC3F7),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Mídia (WhatsApp / GPS)",
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 9.sp
-                    )
-                }
-                Text(
-                    text = "$mediaPercent%",
-                    color = Color(0xFF4FC3F7),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 9.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
-                    onClick = { onStepMedia(false) },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF242424))
+                    onClick = { onStep(false) },
+                    modifier = Modifier.size(38.dp).clip(CircleShape).background(Color(0xFF242424))
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.VolumeDown,
-                        contentDescription = "Diminuir Mídia",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = "Diminuir volume", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
-
-                var localMediaValue by remember(mediaVolume) { mutableFloatStateOf(mediaVolume.toFloat()) }
-
                 Slider(
-                    value = localMediaValue,
-                    onValueChange = { newValue ->
-                        localMediaValue = newValue
-                        val newInt = newValue.roundToInt()
-                        if (newInt != mediaVolume) {
-                            onMediaVolumeChange(newInt)
-                        }
+                    value = localValue,
+                    onValueChange = { value ->
+                        localValue = value
+                        onVolumePercentChange(value.roundToInt().coerceIn(0, 100))
                     },
-                    valueRange = 0f..maxMediaVolume.toFloat(),
-                    steps = (maxMediaVolume - 1).coerceAtLeast(0),
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF4FC3F7),
-                        activeTrackColor = Color(0xFF4FC3F7),
-                        inactiveTrackColor = Color(0xFF333333)
-                    )
+                    valueRange = 0f..100f,
+                    steps = 19,
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                    colors = SliderDefaults.colors(thumbColor = PrimaryNeon, activeTrackColor = PrimaryNeon, inactiveTrackColor = Color(0xFF333333))
                 )
-
                 IconButton(
-                    onClick = { onStepMedia(true) },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF242424))
+                    onClick = { onStep(true) },
+                    modifier = Modifier.size(38.dp).clip(CircleShape).background(Color(0xFF242424))
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                        contentDescription = "Aumentar Mídia",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            // 📞 Canal 2: Volume de Chamada / Voz (Capacete)
-            val callPercent = ((callVolume.toFloat() / maxCallVolume.coerceAtLeast(1)) * 100).toInt()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Call,
-                        contentDescription = null,
-                        tint = PrimaryNeon,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Chamada / Intercom",
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 9.sp
-                    )
-                }
-                Text(
-                    text = "$callPercent%",
-                    color = PrimaryNeon,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 9.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = { onStepCall(false) },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF242424))
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.VolumeDown,
-                        contentDescription = "Diminuir Chamada",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                var localCallValue by remember(callVolume) { mutableFloatStateOf(callVolume.toFloat()) }
-
-                Slider(
-                    value = localCallValue,
-                    onValueChange = { newValue ->
-                        localCallValue = newValue
-                        val newInt = newValue.roundToInt()
-                        if (newInt != callVolume) {
-                            onCallVolumeChange(newInt)
-                        }
-                    },
-                    valueRange = 0f..maxCallVolume.toFloat(),
-                    steps = (maxCallVolume - 1).coerceAtLeast(0),
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = PrimaryNeon,
-                        activeTrackColor = PrimaryNeon,
-                        inactiveTrackColor = Color(0xFF333333)
-                    )
-                )
-
-                IconButton(
-                    onClick = { onStepCall(true) },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF242424))
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                        contentDescription = "Aumentar Chamada",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Aumentar volume", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
             }
         }
     }
+}
+
+@Composable
+fun AudioModeHomeCard(currentAudioMode: AudioModeProfile, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF161616)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.BluetoothConnected, contentDescription = null, tint = PrimaryNeon, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("MODO DE ÁUDIO", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                    Text(currentAudioMode.subtitle, color = Color.Gray, fontSize = 9.sp, maxLines = 1)
+                }
+            }
+            Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFF252525)) {
+                Text(
+                    text = currentAudioMode.title,
+                    color = PrimaryNeon,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AudioModeSelectorDialog(
+    currentAudioMode: AudioModeProfile,
+    onSelect: (AudioModeProfile) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Selecionar modo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                AudioModeProfile.values().forEach { profile ->
+                    val isSelected = currentAudioMode == profile
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onSelect(profile) },
+                        color = if (isSelected) Color(0xFF252525) else Color.Transparent,
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, PrimaryNeon.copy(alpha = 0.5f)) else null,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { onSelect(profile) },
+                                colors = RadioButtonDefaults.colors(selectedColor = PrimaryNeon, unselectedColor = Color.Gray)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Column {
+                                Text(profile.title, color = if (isSelected) PrimaryNeon else Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                Text(profile.subtitle, color = Color.LightGray, fontSize = 9.sp)
+                                Text(profile.details, color = Color.Gray, fontSize = 8.sp, lineHeight = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = Color.LightGray, fontSize = 11.sp) } },
+        containerColor = Color(0xFF1E1E1E),
+        shape = RoundedCornerShape(14.dp)
+    )
 }

@@ -24,6 +24,7 @@ class AudioModeProfileTest {
         assertEquals(AudioModeProfile.MODE_7, AudioModeProfile.fromCode("mode_7"))
         assertEquals(AudioModeProfile.MODE_8, AudioModeProfile.fromCode("mode_8"))
         assertEquals(AudioModeProfile.MODE_9, AudioModeProfile.fromCode("mode_9"))
+        assertEquals(AudioModeProfile.MODE_10, AudioModeProfile.fromCode("mode_10"))
     }
 
     @Test
@@ -45,6 +46,21 @@ class AudioModeProfileTest {
         assertEquals(reference.releaseForMedia, eco.releaseForMedia)
         assertEquals(true, eco.ecoPolling)
         assertEquals(false, reference.ecoPolling)
+        assertEquals(3000L, eco.routeControlStableMs)
+    }
+
+    @Test
+    fun mode10KeepsMode8AudioButReducesMediaDelay() {
+        val fast = AudioModeProfile.fromCode("mode_10")
+        val reference = AudioModeProfile.MODE_8
+        assertEquals(reference.targetAudioMode, fast.targetAudioMode)
+        assertEquals(reference.keepAliveStrategy, fast.keepAliveStrategy)
+        assertEquals(reference.keepAliveSampleRate, fast.keepAliveSampleRate)
+        assertEquals(reference.keepAliveBufferMs, fast.keepAliveBufferMs)
+        assertEquals(reference.releaseForMedia, fast.releaseForMedia)
+        assertEquals(1200L, fast.mediaResumeDelayMs)
+        assertEquals(250L, fast.routeControlStableMs)
+        assertEquals(250L, fast.routeControlUnstableMs)
     }
 
     @Test

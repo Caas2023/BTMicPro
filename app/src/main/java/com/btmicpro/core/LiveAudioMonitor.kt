@@ -114,7 +114,7 @@ class LiveAudioMonitor(
                 }
                 AudioModeProfile.X_PRO_TEST, AudioModeProfile.MODE_2,
                 AudioModeProfile.MODE_6, AudioModeProfile.MODE_7, AudioModeProfile.MODE_8,
-                AudioModeProfile.MODE_9 -> {
+                AudioModeProfile.MODE_9, AudioModeProfile.MODE_10 -> {
                     attributesBuilder
                         .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)

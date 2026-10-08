@@ -125,8 +125,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _isBarModeEnabled.value = prefs.getBoolean("bar_mode_enabled", true)
         _isFloatingButtonEnabled.value = prefs.getBoolean("floating_button_enabled", false)
-        if (_isFloatingButtonEnabled.value && FloatingButtonService.isOverlayGranted(context)) {
-            FloatingButtonService.start(context)
+        if (_isFloatingButtonEnabled.value) {
+            if (FloatingButtonService.isOverlayGranted(context)) {
+                FloatingButtonService.start(context)
+            } else {
+                // Não abrir Configurações de sobreposição automaticamente ao iniciar o app.
+                _isFloatingButtonEnabled.value = false
+                prefs.edit().putBoolean("floating_button_enabled", false).apply()
+                com.btmicpro.core.AppLogger.w("FLOATING_BUTTON", "Sem permissão de sobreposição; botão flutuante desativado sem abrir tela do sistema")
+            }
         }
         _barBoostLevel.value = prefs.getInt("bar_boost_level", 100)
         if (_isBarModeEnabled.value) {
@@ -394,7 +401,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleFloatingButton(enabled: Boolean): Boolean {
         if (enabled && !FloatingButtonService.isOverlayGranted(context)) {
-            FloatingButtonService.requestOverlayPermission(context)
+            _isFloatingButtonEnabled.value = false
+            prefs.edit().putBoolean("floating_button_enabled", false).apply()
+            FloatingButtonService.stop(context)
+            android.widget.Toast.makeText(context, "Botão flutuante ficou desligado: permissão de sobreposição não concedida", android.widget.Toast.LENGTH_LONG).show()
+            com.btmicpro.core.AppLogger.w("FLOATING_BUTTON", "Usuário tentou ativar sem permissão; não abrimos Configurações automaticamente")
             return false
         }
         _isFloatingButtonEnabled.value = enabled
@@ -454,6 +465,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setVolumeSyncEnabled(enabled: Boolean) {
         dualVolumeManager.setSyncEnabled(enabled)
+    }
+
+    fun setUnifiedVolumePercent(percent: Int) {
+        val clamped = percent.coerceIn(0, 100)
+        val mediaLevel = ((clamped / 100f) * maxMediaVolume).toInt().coerceIn(0, maxMediaVolume)
+        val callLevel = ((clamped / 100f) * maxCallVolume).toInt().coerceIn(0, maxCallVolume)
+        dualVolumeManager.setSyncEnabled(true)
+        dualVolumeManager.setMediaVolume(mediaLevel, showUi = true)
+        dualVolumeManager.setCallVolume(callLevel, showUi = false)
+        com.btmicpro.core.AppLogger.i("USER_VOLUME", "unificado=${clamped}%; media=$mediaLevel/$maxMediaVolume; call=$callLevel/$maxCallVolume")
+    }
+
+    fun stepUnifiedVolume(up: Boolean) {
+        val currentMediaPercent = ((mediaVolume.value.toFloat() / maxMediaVolume.coerceAtLeast(1)) * 100).toInt()
+        val currentCallPercent = ((callVolume.value.toFloat() / maxCallVolume.coerceAtLeast(1)) * 100).toInt()
+        val next = (((currentMediaPercent + currentCallPercent) / 2) + if (up) 5 else -5).coerceIn(0, 100)
+        setUnifiedVolumePercent(next)
     }
 
     override fun onCleared() {
