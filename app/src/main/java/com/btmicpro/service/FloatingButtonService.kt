@@ -9,7 +9,6 @@ import android.graphics.PixelFormat
 import android.os.IBinder
 import android.provider.Settings
 import androidx.core.content.edit
-import androidx.core.net.toUri
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -246,15 +245,6 @@ class FloatingButtonService : Service() {
             return Settings.canDrawOverlays(context)
         }
 
-        fun requestOverlayPermission(context: Context) {
-            try {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    "package:${context.packageName}".toUri()
-                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                context.startActivity(intent)
-            } catch (e: Exception) { }
-        }
     }
 
     private class FloatingLifecycleOwner : ViewModelStoreOwner, SavedStateRegistryOwner {

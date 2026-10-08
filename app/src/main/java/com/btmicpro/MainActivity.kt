@@ -10,7 +10,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
-import com.btmicpro.core.BatteryOptimizationHelper
 import com.btmicpro.ui.MainScreen
 import com.btmicpro.ui.MainViewModel
 import com.btmicpro.ui.theme.BTMicProTheme
@@ -30,7 +29,6 @@ class MainActivity : ComponentActivity() {
         if (hasRoutingPermissions()) {
             Toast.makeText(this, "Permissões concedidas com sucesso!", Toast.LENGTH_SHORT).show()
             viewModel.resumeDesiredRouter()
-            checkAndRequestBatteryOptimization()
         } else {
             Toast.makeText(
                 this,
@@ -76,19 +74,6 @@ class MainActivity : ComponentActivity() {
         } else true
     }
 
-    private fun checkAndRequestBatteryOptimization() {
-        if (!BatteryOptimizationHelper.isIgnoringBatteryOptimizations(this)) {
-            window.decorView.postDelayed({
-                Toast.makeText(
-                    this,
-                    "Para funcionar na moto com tela desligada, libere o BT Mic Pro na próxima tela",
-                    Toast.LENGTH_LONG
-                ).show()
-                BatteryOptimizationHelper.requestIgnoreBatteryOptimization(this)
-            }, 1500)
-        }
-    }
-
     private fun requestRequiredPermissions() {
         val permissionsToRequest = mutableListOf<String>()
 
@@ -116,8 +101,6 @@ class MainActivity : ComponentActivity() {
 
         if (permissionsToRequest.isNotEmpty()) {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
-        } else {
-            checkAndRequestBatteryOptimization()
         }
     }
 }

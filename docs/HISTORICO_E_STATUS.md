@@ -1,5 +1,12 @@
 # 📜 Histórico e Status do Projeto — BT Mic Pro
 
+### 2026-10-08 — v1.5.15: bloqueio total de telas automáticas do Android
+- **Motivo**: Usuário informou que o app ainda ficava abrindo Configurações do aparelho/sobreposição ao iniciar, travando o fluxo.
+- **Descrição**: Removida qualquer abertura automática de tela de Configurações do Android no início do app. `MainActivity` não chama mais a tela de otimização de bateria após permissões; `FloatingButtonService` não possui mais método para abrir `ACTION_MANAGE_OVERLAY_PERMISSION`. Permissões normais do Android continuam sendo solicitadas, mas páginas manuais de sistema não são mais abertas pelo app. Se o botão flutuante não tiver permissão, permanece desligado e apenas mostra aviso.
+- **Arquivos**: `app/build.gradle.kts` (versionCode 33, 1.5.15); `MainActivity.kt`; `service/FloatingButtonService.kt`; `README.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Verificação**: `./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon`: **BUILD SUCCESSFUL, 44 testes/0 falhas, Lint 0 issues**. APK `APK/BTMicPro_v1.5.15.apk` (SHA-256 `cb809d174c344fb164455a881eb8abe06653d0ce88af785910957ef03f444eaf`), assinatura igual às versões anteriores. APKs antigos preservados na pasta `APK/` conforme nova regra.
+- **Status**: ✅ Correção aplicada e APK gerado. ⏳ Validar no aparelho que nenhuma página de Configurações do Android abre sozinha ao iniciar.
+
 ### 2026-10-08 — v1.5.14: limpeza de Lint e nova regra de retenção de APKs
 - **Motivo**: Usuário perguntou sobre os 95 avisos do Lint e pediu para corrigir. Também alterou a regra da pasta `APK/`: não apagar versões antigas; novas versões devem apenas ser adicionadas.
 - **Descrição**: Lint ficou com **0 issues**. Corrigidos avisos seguros: recursos/strings/imagens não usados removidos, uso de KTX (`SharedPreferences.edit`/`toUri`), checagens SDK obsoletas removidas, singleton com `Context` eliminado em `DualVolumeManager`, parada de serviços com `Intent` explícito, aviso de acessibilidade do botão flutuante suprimido de forma localizada porque `ComposeView` é final e já chama `performClick()`. Avisos de atualização de dependências e formato visual do launcher foram silenciados no `lint` para evitar upgrade regressivo/alteração visual do logo nesta versão. Regra de APK atualizada em `AGENTS.md` e `.agents/rules/apk_management.md`: preservar APKs antigos.
