@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.core.content.edit
 import com.btmicpro.core.AudioDiagnostics
 import com.btmicpro.core.AudioModeProfile
 import com.btmicpro.core.CommunicationRoute
@@ -42,7 +43,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val mediaBooster = MediaBooster(context)
     val liveAudioMonitor = LiveAudioMonitor(context, viewModelScope)
-    val dualVolumeManager = com.btmicpro.core.DualVolumeManager.getInstance(context)
+    val dualVolumeManager = com.btmicpro.core.DualVolumeManager(context)
 
     val mediaVolume: StateFlow<Int> = dualVolumeManager.mediaVolume
     val callVolume: StateFlow<Int> = dualVolumeManager.callVolume
@@ -131,7 +132,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 // Não abrir Configurações de sobreposição automaticamente ao iniciar o app.
                 _isFloatingButtonEnabled.value = false
-                prefs.edit().putBoolean("floating_button_enabled", false).apply()
+                prefs.edit { putBoolean("floating_button_enabled", false) }
                 com.btmicpro.core.AppLogger.w("FLOATING_BUTTON", "Sem permissão de sobreposição; botão flutuante desativado sem abrir tela do sistema")
             }
         }
@@ -167,7 +168,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setAudioModeProfile(profile: AudioModeProfile) {
         com.btmicpro.core.AppLogger.i("PROFILE_SELECTED", "de=${_audioModeProfile.value.code}; para=${profile.code}; aplicação após captura ativa terminar")
         _audioModeProfile.value = profile
-        prefs.edit().putString("audio_mode_profile", profile.code).apply()
+        prefs.edit { putString("audio_mode_profile", profile.code) }
         liveAudioMonitor.setAudioModeProfile(profile)
         if (liveAudioMonitor.isMonitoring.value) {
             liveAudioMonitor.stopMonitoring()
@@ -183,7 +184,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setRiderPreset(preset: RiderAudioPreset) {
         _selectedPreset.value = preset
-        prefs.edit().putInt("rider_preset_index", preset.ordinal).apply()
+        prefs.edit { putInt("rider_preset_index", preset.ordinal) }
         if (liveAudioMonitor.isMonitoring.value) {
             liveAudioMonitor.stopMonitoring()
             liveAudioMonitor.startMonitoring(
@@ -217,7 +218,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setReturnVolume(volume: Float) {
         val clamped = volume.coerceIn(0.0f, 1.0f)
         _returnVolume.value = clamped
-        prefs.edit().putFloat("return_volume", clamped).apply()
+        prefs.edit { putFloat("return_volume", clamped) }
         liveAudioMonitor.setReturnVolume(clamped)
     }
 
@@ -311,9 +312,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             var count = prefs.getInt("promo_count_v2", 0)
             if (today != savedDate) {
                 count = 0
-                prefs.edit().putString("promo_date_v2", today).apply()
+                prefs.edit { putString("promo_date_v2", today) }
             }
-            prefs.edit().putInt("promo_count_v2", count + 1).apply()
+            prefs.edit { putInt("promo_count_v2", count + 1) }
         } else {
             _showPromoPopup.value = false
         }
@@ -329,7 +330,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissPromoPopup() {
         _showPromoPopup.value = false
-        prefs.edit().putLong("promo_last_closed", System.currentTimeMillis()).apply()
+        prefs.edit { putLong("promo_last_closed", System.currentTimeMillis()) }
         viewModelScope.launch {
             delay(5 * 60 * 60 * 1000L)
             if (canShowPromoToday()) {
@@ -339,9 +340,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 var count = prefs.getInt("promo_count_v2", 0)
                 if (today != savedDate) {
                     count = 0
-                    prefs.edit().putString("promo_date_v2", today).apply()
+                    prefs.edit { putString("promo_date_v2", today) }
                 }
-                prefs.edit().putInt("promo_count_v2", count + 1).apply()
+                prefs.edit { putInt("promo_count_v2", count + 1) }
             }
         }
     }
@@ -355,7 +356,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleRouter(enabled: Boolean) {
         com.btmicpro.core.AppLogger.i("USER_ROUTER", "enabled=$enabled")
         desiredRouterEnabled = enabled
-        prefs.edit().putBoolean(BootReceiver.KEY_ROUTER_ENABLED, enabled).apply()
+        prefs.edit { putBoolean(BootReceiver.KEY_ROUTER_ENABLED, enabled) }
         if (enabled) {
             // Teste local e roteamento externo são modos mutuamente exclusivos.
             liveAudioMonitor.stopMonitoring()
@@ -367,7 +368,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setRawAudioMode(enabled: Boolean) {
         _isRawAudioMode.value = enabled
-        prefs.edit().putBoolean("raw_audio_mode", enabled).apply()
+        prefs.edit { putBoolean("raw_audio_mode", enabled) }
         if (liveAudioMonitor.isMonitoring.value) {
             liveAudioMonitor.stopMonitoring()
             liveAudioMonitor.startMonitoring(
@@ -402,28 +403,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleFloatingButton(enabled: Boolean): Boolean {
         if (enabled && !FloatingButtonService.isOverlayGranted(context)) {
             _isFloatingButtonEnabled.value = false
-            prefs.edit().putBoolean("floating_button_enabled", false).apply()
+            prefs.edit { putBoolean("floating_button_enabled", false) }
             FloatingButtonService.stop(context)
             android.widget.Toast.makeText(context, "Botão flutuante ficou desligado: permissão de sobreposição não concedida", android.widget.Toast.LENGTH_LONG).show()
             com.btmicpro.core.AppLogger.w("FLOATING_BUTTON", "Usuário tentou ativar sem permissão; não abrimos Configurações automaticamente")
             return false
         }
         _isFloatingButtonEnabled.value = enabled
-        prefs.edit().putBoolean("floating_button_enabled", enabled).apply()
+        prefs.edit { putBoolean("floating_button_enabled", enabled) }
         if (enabled) FloatingButtonService.start(context) else FloatingButtonService.stop(context)
         return true
     }
 
     fun toggleBarMode(enabled: Boolean) {
         _isBarModeEnabled.value = enabled
-        prefs.edit().putBoolean("bar_mode_enabled", enabled).apply()
+        prefs.edit { putBoolean("bar_mode_enabled", enabled) }
         if (enabled) mediaBooster.enableBarMode(_barBoostLevel.value) else mediaBooster.disableBarMode()
     }
 
     fun setBarBoostLevel(level: Int) {
         com.btmicpro.core.AppLogger.i("USER_BOOST", "level=$level")
         _barBoostLevel.value = level
-        prefs.edit().putInt("bar_boost_level", level).apply()
+        prefs.edit { putInt("bar_boost_level", level) }
         if (_isBarModeEnabled.value) mediaBooster.setBoostLevel(level)
     }
 
@@ -439,12 +440,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setDenoiseIntensity(level: Float) {
         _denoiseIntensity.value = level
-        prefs.edit().putFloat(BootReceiver.KEY_DENOISE_LEVEL, level).apply()
+        prefs.edit { putFloat(BootReceiver.KEY_DENOISE_LEVEL, level) }
     }
 
     fun setAutoStartOnBoot(enabled: Boolean) {
         _autoStartOnBoot.value = enabled
-        prefs.edit().putBoolean(BootReceiver.KEY_AUTO_START, enabled).apply()
+        prefs.edit { putBoolean(BootReceiver.KEY_AUTO_START, enabled) }
     }
 
     fun setMediaVolume(level: Int) {

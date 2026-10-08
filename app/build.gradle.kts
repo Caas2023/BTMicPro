@@ -12,8 +12,8 @@ android {
         applicationId = "com.btmicpro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 31
-        versionName = "1.5.13"
+        versionCode = 32
+        versionName = "1.5.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -46,6 +46,10 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    lint {
+        // Dependências ficam estáveis para não introduzir regressões no Android/Compose.
+        disable += setOf("AndroidGradlePluginVersion", "GradleDependency", "IconLauncherShape")
+    }
 }
 
 dependencies {
@@ -64,7 +68,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     // Testes Unitários
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit)
 
     // Ferramentas de debug do Compose
     debugImplementation(libs.androidx.ui.tooling)

@@ -6,9 +6,9 @@ O projeto contém um serviço de roteamento, controles de volume de mídia e cha
 
 ## Estado atual
 
-- Versão de teste: **1.5.13**, código **31**.
+- Versão de teste: **1.5.14**, código **32**.
 - Android mínimo declarado: API 26; `compileSdk` e `targetSdk`: **36**.
-- Prioridade de validação: **Cubot KingKong X Pro + WAYXIN KT-1**. Onze estratégias selecionáveis agora pela tela inicial. O **Modo 8 funcionou** no teste do usuário e foi preservado sem alterações; o **Modo 9** continua sendo Eco de bateria; o novo **Modo 10 (Escuta rápida)** reduz o atraso para liberar a escuta de áudio recebido. A gravação contínua no WhatsApp ainda precisa ser validada por perfil.
+- Prioridade de validação: **Cubot KingKong X Pro + WAYXIN KT-1**. Onze estratégias selecionáveis pela tela inicial. O **Modo 8 funcionou** no teste do usuário e foi preservado sem alterações; o **Modo 9** continua sendo Eco de bateria; o novo **Modo 10 (Escuta rápida)** reduz o atraso para liberar a escuta de áudio recebido. A gravação contínua no WhatsApp ainda precisa ser validada por perfil.
 - Compare no aparelho: retorno local; com teste de microfone parado, envio e reprodução de nota de voz no WhatsApp; chamada e reconexão Bluetooth. O perfil é experimental e não comprova funcionamento em todos os celulares.
 - A captura local tenta 16 kHz primeiro e depois 48/44,1/8 kHz conforme suporte. O roteamento legado usa SCO nas APIs 26–30; Android 12+ usa o dispositivo de comunicação.
 - A inicialização automática tem restrições de permissões e execução em segundo plano, especialmente no Android 14+.
@@ -35,7 +35,7 @@ Consulte a [revisão e protocolo de testes](docs/reports/REVISAO_MODOS_E_LOGS_20
 
 Exceto Standard, a liberação para mídia exige ausência de captura ativa visível ao Android. Trocas de perfil aguardam o fim da captura. Os modos 2/5 permitem comparar o modo VoIP, que pode afetar a aceitação de notas pelo WhatsApp; não há reafirmação periódica de modo. Nenhum perfil captura áudio de fundo para sustentar a rota. As diferenças do retorno/DSP pertencem ao teste local.
 
-## Economia de bateria e resposta rápida (v1.5.13)
+## Economia de bateria e resposta rápida (v1.5.14)
 
 - Silêncio de sustentação em blocos de 100 ms com prioridade baixa de CPU (~10 acordos/s em vez de ~50/s); o buffer de 500 ms dos Modos 8/9 absorve atrasos sem underrun audível (é silêncio).
 - Verificação periódica adaptativa: com rota estável, a rede de segurança passa de 0,5 s para 1,5 s (3 s no Modo 9); instável, 0,5 s (1 s no Modo 9). Eventos reais (captura, reprodução, SCO, dispositivos) continuam imediatos via callbacks do Android.

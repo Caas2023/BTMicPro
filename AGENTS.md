@@ -4,7 +4,7 @@ Instruções obrigatórias para qualquer LLM/agente que modificar este projeto.
 
 ## 1. APK de teste é entrega obrigatória
 - Após **qualquer mudança de código**, gerar o APK: `.\gradlew.bat assembleDebug` e copiar `app\build\outputs\apk\debug\app-debug.apk` para `APK\BTMicPro_v<VERSION>.apk` (versão = `versionName` em `app/build.gradle.kts`).
-- Regras completas: `.agents/rules/apk_management.md`. Nunca deixar APK solto na raiz. Manter no máximo 2 APKs (atual + anterior).
+- Regras completas: `.agents/rules/apk_management.md`. Nunca deixar APK solto na raiz. Não apagar versões antigas da pasta `APK/`; ao gerar versão nova, apenas adicionar o novo arquivo versionado.
 
 ## 2. Histórico de modificações é obrigatório
 - Registrar **toda modificação** em `docs/HISTORICO_E_STATUS.md` (data + descrição + arquivos + status).

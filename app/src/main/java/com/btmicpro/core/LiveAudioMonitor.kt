@@ -149,11 +149,7 @@ class LiveAudioMonitor(
                 .setAudioFormat(format)
                 .setBufferSizeInBytes(bufferSize)
                 .setTransferMode(AudioTrack.MODE_STREAM)
-                .apply {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                    }
-                }
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .build()
             if (track.state != AudioTrack.STATE_INITIALIZED) {
                 track.release()
@@ -161,7 +157,7 @@ class LiveAudioMonitor(
             }
             audioTrack = track
 
-            if (currentAudioModeProfile != AudioModeProfile.STANDARD && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (currentAudioModeProfile != AudioModeProfile.STANDARD) {
                 val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
                 val btOutput = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     audioManager.communicationDevice?.takeIf(CommunicationDeviceManager::isVoiceBluetooth) ?: outputs.firstOrNull {
@@ -267,7 +263,7 @@ class LiveAudioMonitor(
             val frameSize = sampleRate / 50
 
             // Conecta ao microfone Bluetooth se disponível
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            run {
                 val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
                 val btInput = if (currentAudioModeProfile == AudioModeProfile.X_PRO_TEST) {
                     val manager = CommunicationDeviceManager(context)

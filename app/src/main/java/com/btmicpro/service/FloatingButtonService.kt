@@ -1,13 +1,15 @@
 package com.btmicpro.service
 
+import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.PixelFormat
-import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -74,6 +76,7 @@ class FloatingButtonService : Service() {
 
     private lateinit var lifecycleOwner: FloatingLifecycleOwner
 
+    @SuppressLint("ClickableViewAccessibility")
     override fun onCreate() {
         super.onCreate()
         if (!Settings.canDrawOverlays(this)) {
@@ -94,11 +97,7 @@ class FloatingButtonService : Service() {
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
-        }
+        val type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
 
         params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -171,10 +170,10 @@ class FloatingButtonService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (isMoving) {
-                        prefs?.edit()
-                            ?.putInt(PREF_FLOAT_X, params?.x ?: 20)
-                            ?.putInt(PREF_FLOAT_Y, params?.y ?: 300)
-                            ?.apply()
+                        prefs?.edit {
+                            putInt(PREF_FLOAT_X, params?.x ?: 20)
+                            putInt(PREF_FLOAT_Y, params?.y ?: 300)
+                        }
                         handler.postDelayed({ isMoving = false }, 100)
                     } else {
                         view.performClick()
@@ -201,7 +200,7 @@ class FloatingButtonService : Service() {
         val currentlyRunning = com.btmicpro.core.RouterStateHolder.isServiceRunning.value
         val newEnabled = !currentlyRunning
         isEnabledFlow.value = newEnabled
-        prefs?.edit()?.putBoolean(BootReceiver.KEY_ROUTER_ENABLED, newEnabled)?.apply()
+        prefs?.edit { putBoolean(BootReceiver.KEY_ROUTER_ENABLED, newEnabled) }
 
         if (newEnabled) {
             val started = BtMicService.start(this, BtMicServiceStartMode.ROUTE_WITH_MICROPHONE)
@@ -237,7 +236,10 @@ class FloatingButtonService : Service() {
         }
 
         fun stop(context: Context) {
-            try { context.stopService(Intent(context, FloatingButtonService::class.java)) } catch (ignored: Exception) {}
+            try {
+                val intent = Intent(context, FloatingButtonService::class.java)
+                context.stopService(intent)
+            } catch (ignored: Exception) {}
         }
 
         fun isOverlayGranted(context: Context): Boolean {
@@ -248,7 +250,7 @@ class FloatingButtonService : Service() {
             try {
                 val intent = Intent(
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    android.net.Uri.parse("package:${context.packageName}")
+                    "package:${context.packageName}".toUri()
                 ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                 context.startActivity(intent)
             } catch (e: Exception) { }

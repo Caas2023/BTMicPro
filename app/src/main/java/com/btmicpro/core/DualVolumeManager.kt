@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import android.os.Build
 import android.util.Log
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -162,7 +163,7 @@ class DualVolumeManager(private val context: Context) {
 
         if (showUi) {
             context.getSharedPreferences("dual_volume_prefs", Context.MODE_PRIVATE)
-                .edit().putBoolean("user_customized_volumes", true).apply()
+                .edit { putBoolean("user_customized_volumes", true) }
         }
 
         if (_isSyncEnabled.value) {
@@ -188,7 +189,7 @@ class DualVolumeManager(private val context: Context) {
 
         if (showUi) {
             context.getSharedPreferences("dual_volume_prefs", Context.MODE_PRIVATE)
-                .edit().putBoolean("user_customized_volumes", true).apply()
+                .edit { putBoolean("user_customized_volumes", true) }
         }
 
         if (_isSyncEnabled.value) {
@@ -260,14 +261,5 @@ class DualVolumeManager(private val context: Context) {
         private const val ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
         private const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
         private const val EXTRA_VOLUME_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE"
-
-        @Volatile
-        private var instance: DualVolumeManager? = null
-
-        fun getInstance(context: Context): DualVolumeManager {
-            return instance ?: synchronized(this) {
-                instance ?: DualVolumeManager(context.applicationContext).also { instance = it }
-            }
-        }
     }
 }
