@@ -141,7 +141,8 @@ fun CleanHomeScreen(
     val isRouterEnabled by viewModel.isRouterEnabled.collectAsState()
     val mediaVolume by viewModel.mediaVolume.collectAsState()
     val callVolume by viewModel.callVolume.collectAsState()
-    val isFloatingButtonEnabled by viewModel.isFloatingButtonEnabled.collectAsState()
+    val isBarModeEnabled by viewModel.isBarModeEnabled.collectAsState()
+    val barBoostLevel by viewModel.barBoostLevel.collectAsState()
     val currentAudioMode by viewModel.audioModeProfile.collectAsState()
     val scrollState = rememberScrollState()
     var showAudioModeDialog by remember { mutableStateOf(false) }
@@ -221,34 +222,12 @@ fun CleanHomeScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Botão de Sobrepor (Trazido das configs para ficar compacto na home)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF161616)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF282828))
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.Settings, contentDescription = null, tint = PrimaryNeon, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Column {
-                        Text("BOTÃO FLUTUANTE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp)
-                        Text("Controle fora do app", color = Color.Gray, fontSize = 9.sp)
-                    }
-                }
-                Switch(
-                    checked = isFloatingButtonEnabled,
-                    onCheckedChange = { viewModel.toggleFloatingButton(it) },
-                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PrimaryNeon),
-                    modifier = Modifier.height(6.dp)
-                )
-            }
-        }
+        HomeBarModeCard(
+            enabled = isBarModeEnabled,
+            boostLevel = barBoostLevel,
+            onToggle = { viewModel.toggleBarMode(it) },
+            onBoostChange = { viewModel.setBarBoostLevel(it) }
+        )
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -1172,6 +1151,73 @@ fun AffiliateBannerCarousel() {
                     .background(current.neonColor, RoundedCornerShape(4.dp))
                     .padding(horizontal = 5.dp, vertical = 2.dp)
             )
+        }
+    }
+}
+
+@Composable
+fun HomeBarModeCard(
+    enabled: Boolean,
+    boostLevel: Int,
+    onToggle: (Boolean) -> Unit,
+    onBoostChange: (Int) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF161616)),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (enabled) WarningAmber.copy(alpha = 0.55f) else Color(0xFF282828)
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.GraphicEq,
+                        contentDescription = null,
+                        tint = if (enabled) WarningAmber else PrimaryNeon,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Column {
+                        Text("MODO BAR", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                        Text(
+                            text = if (enabled) "Aumentador ligado: +${boostLevel * 8 / 100} dB" else "Aumenta áudios recebidos",
+                            color = Color.Gray,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onToggle,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = WarningAmber,
+                        uncheckedThumbColor = Color.LightGray,
+                        uncheckedTrackColor = Color.DarkGray
+                    ),
+                    modifier = Modifier.height(6.dp)
+                )
+            }
+            if (enabled) {
+                Slider(
+                    value = boostLevel.toFloat(),
+                    onValueChange = { onBoostChange(it.toInt()) },
+                    valueRange = 0f..100f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = WarningAmber,
+                        activeTrackColor = WarningAmber,
+                        inactiveTrackColor = Color.DarkGray
+                    )
+                )
+            }
         }
     }
 }

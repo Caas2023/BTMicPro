@@ -1,5 +1,12 @@
 # 📜 Histórico e Status do Projeto — BT Mic Pro
 
+### 2026-10-08 — v1.5.17: Modo Bar na home no lugar do botão flutuante
+- **Motivo**: Usuário informou que, com o app funcionando, o botão flutuante ficou irrelevante na tela inicial e pediu para trocar pelo aumentador de volume/Modo Bar.
+- **Descrição**: Card de botão flutuante removido da home. No lugar, adicionado card **Modo Bar** com switch e controle de ganho quando ativo. Botão flutuante permanece disponível apenas na página Sistema das Configurações.
+- **Arquivos**: `app/build.gradle.kts` (versionCode 35, 1.5.17); `ui/MainScreen.kt`; `README.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Verificação**: `./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon`: **BUILD SUCCESSFUL, 44 testes/0 falhas, Lint 0 issues**. APK `APK/BTMicPro_v1.5.17.apk` (SHA-256 `60d3f8ac8c7dc9b32eb28113e5f62900f4248706fd786b879bca4ce474d45ca6`). APKs antigos preservados na pasta `APK/`.
+- **Status**: ✅ Home atualizada e APK gerado.
+
 ### 2026-10-08 — v1.5.16: carrossel fixo de banners no rodapé da home
 - **Motivo**: Usuário pediu para reaproveitar o espaço no rodapé da tela inicial com banners/anúncios em carrossel, sempre visíveis, alternando a cada 1 segundo e abrindo link ao tocar.
 - **Descrição**: Restaurados os banners/promos antigos e movidos para `drawable-nodpi` para evitar avisos de densidade. Adicionado `AffiliateBannerCarousel()` no rodapé da home, abaixo do seletor de modos, com 8 anúncios rotativos (1 s por banner), marcação “AD”, imagem de fundo e clique abrindo o link correspondente no navegador.
