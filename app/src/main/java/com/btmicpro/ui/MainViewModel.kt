@@ -96,7 +96,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Modo de Áudio (Perfis de Compatibilidade de Retorno/Sidetone)
     private val _audioModeProfile = MutableStateFlow(
-        AudioModeProfile.fromCode(prefs.getString("audio_mode_profile", AudioModeProfile.STANDARD.code))
+        AudioModeProfile.fromCode(prefs.getString("audio_mode_profile", AudioModeProfile.defaultProfile.code))
     )
     val audioModeProfile: StateFlow<AudioModeProfile> = _audioModeProfile.asStateFlow()
 
@@ -116,9 +116,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Modo de Áudio
         liveAudioMonitor.setAudioModeProfile(_audioModeProfile.value)
 
-        // Ouvir o próprio áudio: para o perfil X_PRO_TEST, padrão é 0.5f (eco ativado)
-        val defaultReturnVolume = if (_audioModeProfile.value == AudioModeProfile.X_PRO_TEST) 0.5f else 0.0f
-        _returnVolume.value = prefs.getFloat("return_volume", defaultReturnVolume)
+        _returnVolume.value = prefs.getFloat("return_volume", 0.0f)
+
+        // Persiste o novo código após migrar perfis das versões 1.5.17 e anteriores.
+        if (prefs.getString("audio_mode_profile", null) != _audioModeProfile.value.code) {
+            prefs.edit { putString("audio_mode_profile", _audioModeProfile.value.code) }
+            com.btmicpro.core.AppLogger.i("PROFILE_MIGRATED", "perfil=${_audioModeProfile.value.code}")
+        }
 
         // Preset Vento Extremo por padrão
         val savedPresetIndex = prefs.getInt("rider_preset_index", RiderAudioPreset.EXTREME_WIND.ordinal)

@@ -12,8 +12,8 @@ android {
         applicationId = "com.btmicpro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "1.5.17"
+        versionCode = 36
+        versionName = "1.5.18"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

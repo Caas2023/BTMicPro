@@ -4,7 +4,11 @@ import android.media.AudioManager
 
 enum class KeepAliveStrategy { NONE, STREAM_VOICE, STREAM_SONIFICATION, STATIC_VOICE }
 
-/** Experimentos selecionáveis: os parâmetros de roteamento também são registrados nos logs. */
+/**
+ * Perfis comparativos de compatibilidade. Os Modos 1–3 preservam, sem mudanças,
+ * os parâmetros dos antigos Modos 8–10 validados no KingKong X Pro.
+ * Os demais são candidatos experimentais e precisam de validação física.
+ */
 enum class AudioModeProfile(
     val code: String,
     val title: String,
@@ -18,75 +22,146 @@ enum class AudioModeProfile(
     val mediaResumeDelayMs: Long = 1500L,
     val ecoPolling: Boolean = false,
     val routeControlStableMs: Long = 1500L,
-    val routeControlUnstableMs: Long = 500L
+    val routeControlUnstableMs: Long = 500L,
+    val watchdogIntervalMs: Long = 15000L,
+    val transientRecheckMs: Long = 300L,
+    val selectionTimeoutMs: Long = 10000L,
+    val reassertOnTransient: Boolean = false
 ) {
-    X_PRO_TEST(
-        "x_pro_test", "KingKong X Pro (Experimental)", "Voz sustentada + escuta automática",
-        "Teste A: silêncio de voz em fluxo contínuo, 16 kHz e buffer de 200 ms. Mantém MODE_NORMAL; libera SCO para mídia sem captura ativa e retoma após 1,5 s. Compare com os modos 6 e 8."
-    ),
-    STANDARD(
-        "standard", "Standard (Referência)", "Voz sustentada sem liberação para mídia",
-        "Referência: mantém a solicitação Bluetooth e o silêncio de voz mesmo durante mídia. MODE_NORMAL. Serve para comparar o efeito da liberação automática; retorno local usa atributos de notificação.",
-        releaseForMedia = false
-    ),
-    MODE_2(
-        "mode_2", "Modo 2 (Comunicação + sustentação)", "Modo VoIP solicitado uma vez + silêncio",
-        "Testa MODE_IN_COMMUNICATION junto do silêncio de voz. Não reafirma o modo a cada queda. Libera durante mídia sem captura ativa. O Android/WhatsApp pode tratar este experimento como chamada.",
-        targetAudioMode = AudioManager.MODE_IN_COMMUNICATION
-    ),
-    MODE_3(
-        "mode_3", "Modo 3 (Rota sem sustentação)", "Controle: MODE_NORMAL sem AudioTrack",
-        "Solicita somente a rota, sem gerar silêncio. Compara a política de inatividade do Android com os modos sustentados. O canal pode expirar em cerca de seis segundos no X Pro.",
-        keepAliveStrategy = KeepAliveStrategy.NONE
-    ),
-    MODE_4(
-        "mode_4", "Modo 4 (Sonificação)", "Silêncio com atributos de sonificação",
-        "Testa USAGE_ASSISTANCE_SONIFICATION em vez de voz, com saída Bluetooth preferida. Mantém MODE_NORMAL e liberação automática para mídia. Retorno local também usa sonificação.",
-        keepAliveStrategy = KeepAliveStrategy.STREAM_SONIFICATION
-    ),
-    MODE_5(
-        "mode_5", "Modo 5 (Comunicação sem silêncio)", "Modo VoIP solicitado uma vez; sem AudioTrack",
-        "Compara a estratégia antiga do modo 5: MODE_IN_COMMUNICATION e nenhum silêncio de sustentação. Solicita modo uma vez por ativação, sem disputa periódica. Retorno local usa fonte VOICE_COMMUNICATION.",
-        targetAudioMode = AudioManager.MODE_IN_COMMUNICATION,
-        keepAliveStrategy = KeepAliveStrategy.NONE
-    ),
-    MODE_6(
-        "mode_6", "Modo 6 (Silêncio em loop)", "Buffer estático: sem thread de escrita contínua",
-        "Testa AudioTrack MODE_STATIC com silêncio em loop de um segundo. Elimina pausas do produtor PCM como variável. Mantém MODE_NORMAL e libera para mídia sem captura ativa.",
-        keepAliveStrategy = KeepAliveStrategy.STATIC_VOICE
-    ),
-    MODE_7(
-        "mode_7", "Modo 7 (PCM 8 kHz)", "Sustentação de voz a 8 kHz",
-        "Compara o formato PCM do AudioTrack em 8 kHz com os 16 kHz do X Pro experimental. Não força codec HFP. MODE_NORMAL, buffer de 200 ms e liberação automática para mídia.",
-        keepAliveSampleRate = 8000
-    ),
-    MODE_8(
-        "mode_8", "Modo 8 (Maior margem)", "Buffer de 500 ms + retomada após 2,5 s",
-        "Testa tolerância ao escalonamento com silêncio de voz em buffer maior e espera mais longa entre áudios recebidos. MODE_NORMAL; a captura ativa visível tem prioridade sobre a liberação de mídia.",
+    MODE_1_KINGKONG_STABLE(
+        "kingkong_stable", "Modo 1 — KingKong estável", "Antigo Modo 8 • recomendado",
+        "Perfil aprovado no KingKong X Pro + KT-1. Preserva exatamente o antigo Modo 8: MODE_NORMAL, silêncio de voz 16 kHz, buffer 500 ms, liberação para mídia e retomada após 2,5 s.",
         keepAliveBufferMs = 500,
         mediaResumeDelayMs = 2500L
     ),
-    MODE_9(
-        "mode_9", "Modo 9 (Eco — bateria mínima)", "Como o Modo 8 + economia agressiva",
-        "Mesmos parâmetros de áudio do Modo 8 que funcionou (silêncio de voz 16 kHz, buffer 500 ms, retomada 2,5 s, MODE_NORMAL, liberação para mídia). A diferença é só o ritmo das verificações: com rota estável, a rede de segurança passa de 1,5 s para 3 s e o diagnóstico de 90 s para 180 s. Eventos (captura, reprodução, SCO) continuam imediatos via callbacks. Para economia máxima, desligue o Modo Bar. Valide notas de voz como no Modo 8.",
+    MODE_2_KINGKONG_ECO(
+        "kingkong_eco", "Modo 2 — KingKong Eco", "Antigo Modo 9 • bateria",
+        "Preserva exatamente o antigo Modo 9: áudio do perfil estável, verificações a cada 3 s com rota pronta e diagnóstico reduzido para economizar bateria.",
         keepAliveBufferMs = 500,
         mediaResumeDelayMs = 2500L,
         ecoPolling = true,
         routeControlStableMs = 3000L,
         routeControlUnstableMs = 1000L
     ),
-    MODE_10(
-        "mode_10", "Modo 10 (Escuta rápida)", "Como o Modo 8, mas detecta mídia mais rápido",
-        "Preserva a sustentação que funcionou no Modo 8 (silêncio de voz 16 kHz, buffer 500 ms e MODE_NORMAL), mas verifica a liberação para mídia a cada 250 ms e retoma o microfone após 1,2 s sem mídia. Use para reduzir o atraso ao começar a ouvir áudio; se cortar notas ou oscilar, volte ao Modo 8.",
+    MODE_3_KINGKONG_FAST(
+        "kingkong_fast", "Modo 3 — KingKong rápido", "Antigo Modo 10 • escuta rápida",
+        "Preserva exatamente o antigo Modo 10: base do perfil estável, verificação de mídia a cada 250 ms e retomada do microfone após 1,2 s sem mídia.",
         keepAliveBufferMs = 500,
         mediaResumeDelayMs = 1200L,
         routeControlStableMs = 250L,
         routeControlUnstableMs = 250L
+    ),
+    MODE_4_SAMSUNG_SAFE(
+        "samsung_safe", "Modo 4 — Samsung Safe", "One UI • estabilidade conservadora",
+        "Candidato para Samsung/One UI: MODE_NORMAL, voz 16 kHz, buffer 400 ms, retomada após 2 s e seleção sem reafirmação agressiva. Evita simular chamada VoIP.",
+        keepAliveBufferMs = 400,
+        mediaResumeDelayMs = 2000L,
+        routeControlStableMs = 1000L,
+        transientRecheckMs = 500L,
+        selectionTimeoutMs = 12000L
+    ),
+    MODE_5_XIAOMI_PERSISTENT(
+        "xiaomi_persistent", "Modo 5 — Xiaomi persistente", "MIUI/HyperOS • recuperação ativa",
+        "Candidato para Xiaomi/Redmi/Poco: MODE_NORMAL, buffer 600 ms, watchdog de 8 s e reafirmação somente quando uma oscilação real é observada. Pode consumir mais bateria.",
+        keepAliveBufferMs = 600,
+        mediaResumeDelayMs = 2500L,
+        routeControlStableMs = 750L,
+        routeControlUnstableMs = 400L,
+        watchdogIntervalMs = 8000L,
+        transientRecheckMs = 250L,
+        selectionTimeoutMs = 12000L,
+        reassertOnTransient = true
+    ),
+    MODE_6_MOTOROLA_BALANCED(
+        "motorola_balanced", "Modo 6 — Motorola equilibrado", "My UX • resposta e estabilidade",
+        "Candidato para Motorola: MODE_NORMAL, buffer 350 ms, retomada após 1,8 s e verificações moderadas. Mantém o WhatsApp como dono da captura.",
+        keepAliveBufferMs = 350,
+        mediaResumeDelayMs = 1800L,
+        routeControlStableMs = 1000L,
+        transientRecheckMs = 400L
+    ),
+    MODE_7_ANDROID_LEGACY(
+        "android_legacy", "Modo 7 — Android 8–11", "SCO legado + modo comunicação",
+        "Candidato para API 26–30: usa o caminho SCO legado do Android e solicita MODE_IN_COMMUNICATION uma vez. Pode fazer o WhatsApp interpretar que há chamada; use apenas em Android antigo.",
+        targetAudioMode = AudioManager.MODE_IN_COMMUNICATION,
+        keepAliveBufferMs = 400,
+        mediaResumeDelayMs = 2200L,
+        routeControlStableMs = 750L,
+        routeControlUnstableMs = 400L,
+        selectionTimeoutMs = 15000L
+    ),
+    MODE_8_ANDROID_12_UNIVERSAL(
+        "android_12_universal", "Modo 8 — Android 12+ universal", "CommunicationDevice • perfil genérico",
+        "Candidato universal para Android 12+: prioriza setCommunicationDevice, MODE_NORMAL, silêncio de voz 16 kHz, buffer 300 ms e retomada após 1,8 s.",
+        keepAliveBufferMs = 300,
+        mediaResumeDelayMs = 1800L,
+        routeControlStableMs = 1000L,
+        selectionTimeoutMs = 10000L
+    ),
+    MODE_9_WEAK_RADIO(
+        "weak_radio", "Modo 9 — Rádio fraco", "Buffer e tolerância maiores",
+        "Candidato para intercom ou sinal instável: buffer 800 ms, tolerância de 1 s para oscilações e retomada após 3,5 s. Prioriza estabilidade sobre velocidade.",
+        keepAliveBufferMs = 800,
+        mediaResumeDelayMs = 3500L,
+        routeControlStableMs = 750L,
+        routeControlUnstableMs = 400L,
+        transientRecheckMs = 1000L,
+        selectionTimeoutMs = 15000L
+    ),
+    MODE_10_LOW_LATENCY(
+        "low_latency", "Modo 10 — Baixa latência", "Escuta genérica mais rápida",
+        "Candidato rápido para outros aparelhos: buffer 200 ms, verificação a cada 200 ms e retomada após 750 ms. Pode oscilar mais e gastar mais bateria.",
+        keepAliveBufferMs = 200,
+        mediaResumeDelayMs = 750L,
+        routeControlStableMs = 200L,
+        routeControlUnstableMs = 200L,
+        watchdogIntervalMs = 10000L,
+        transientRecheckMs = 200L
+    ),
+    MODE_11_NO_KEEPALIVE(
+        "no_keepalive", "Modo 11 — Sem sustentação", "Diagnóstico de Android permissivo",
+        "Controle diagnóstico: seleciona a rota em MODE_NORMAL sem AudioTrack silencioso. Economiza energia, mas a rota pode expirar em aparelhos que exigem atividade do UID.",
+        keepAliveStrategy = KeepAliveStrategy.NONE,
+        mediaResumeDelayMs = 1500L,
+        routeControlStableMs = 1000L
+    ),
+    MODE_12_STATIC_LOOP(
+        "static_loop", "Modo 12 — Loop estático", "Sustentação sem produtor PCM contínuo",
+        "Candidato para aparelhos sensíveis à thread PCM: AudioTrack MODE_STATIC com um segundo de silêncio em loop, MODE_NORMAL e retomada após 2 s.",
+        keepAliveStrategy = KeepAliveStrategy.STATIC_VOICE,
+        keepAliveBufferMs = 1000,
+        mediaResumeDelayMs = 2000L,
+        routeControlStableMs = 1000L
+    ),
+    MODE_13_VOIP_FALLBACK(
+        "voip_fallback", "Modo 13 — VoIP fallback", "Último recurso • modo comunicação",
+        "Último recurso para stacks que só abrem SCO em modo VoIP: MODE_IN_COMMUNICATION + silêncio de voz. Pode bloquear notas do WhatsApp como se houvesse chamada; não use se os demais funcionarem.",
+        targetAudioMode = AudioManager.MODE_IN_COMMUNICATION,
+        keepAliveBufferMs = 500,
+        mediaResumeDelayMs = 2500L,
+        routeControlStableMs = 750L,
+        selectionTimeoutMs = 15000L
     );
 
     val useSilenceKeepAlive: Boolean get() = keepAliveStrategy != KeepAliveStrategy.NONE
 
     companion object {
-        fun fromCode(code: String?): AudioModeProfile = entries.find { it.code == code } ?: STANDARD
+        val defaultProfile: AudioModeProfile = MODE_1_KINGKONG_STABLE
+
+        /** Migra códigos das versões 1.5.17 e anteriores sem alterar o comportamento aprovado. */
+        fun fromCode(code: String?): AudioModeProfile = entries.find { it.code == code } ?: when (code) {
+            "mode_8" -> MODE_1_KINGKONG_STABLE
+            "mode_9" -> MODE_2_KINGKONG_ECO
+            "mode_10" -> MODE_3_KINGKONG_FAST
+            "x_pro_test" -> MODE_8_ANDROID_12_UNIVERSAL
+            "standard" -> MODE_12_STATIC_LOOP
+            "mode_2" -> MODE_13_VOIP_FALLBACK
+            "mode_3" -> MODE_11_NO_KEEPALIVE
+            "mode_4" -> MODE_8_ANDROID_12_UNIVERSAL
+            "mode_5" -> MODE_13_VOIP_FALLBACK
+            "mode_6" -> MODE_12_STATIC_LOOP
+            "mode_7" -> MODE_7_ANDROID_LEGACY
+            else -> defaultProfile
+        }
     }
 }

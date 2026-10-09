@@ -6,43 +6,45 @@ O projeto contém um serviço de roteamento, controles de volume de mídia e cha
 
 ## Estado atual
 
-- Versão de teste: **1.5.17**, código **35**.
+- Versão de teste: **1.5.18**, código **36**.
 - Android mínimo declarado: API 26; `compileSdk` e `targetSdk`: **36**.
-- Prioridade de validação: **Cubot KingKong X Pro + WAYXIN KT-1**. Onze estratégias selecionáveis pela tela inicial. O **Modo 8 funcionou** no teste do usuário e foi preservado sem alterações; o **Modo 9** continua sendo Eco de bateria; o novo **Modo 10 (Escuta rápida)** reduz o atraso para liberar a escuta de áudio recebido. A gravação contínua no WhatsApp ainda precisa ser validada por perfil.
+- Prioridade de validação: **Cubot KingKong X Pro + WAYXIN KT-1**. Treze estratégias selecionáveis pela tela inicial. Os antigos Modos 8, 9 e 10 foram preservados sem alterar parâmetros e renumerados como **Modo 1 (KingKong estável)**, **Modo 2 (KingKong Eco)** e **Modo 3 (KingKong rápido)**. Os Modos 4–13 são candidatos experimentais para outros aparelhos e não representam garantia por marca.
 - Compare no aparelho: retorno local; com teste de microfone parado, envio e reprodução de nota de voz no WhatsApp; chamada e reconexão Bluetooth. O perfil é experimental e não comprova funcionamento em todos os celulares.
 - A captura local tenta 16 kHz primeiro e depois 48/44,1/8 kHz conforme suporte. O roteamento legado usa SCO nas APIs 26–30; Android 12+ usa o dispositivo de comunicação.
 - A inicialização automática tem restrições de permissões e execução em segundo plano, especialmente no Android 14+.
 - A interface contém ajustes de retorno/DSP cujo fluxo de ativação ainda precisa ser concluído.
 - Não há implementação atual de chamada simulada via Telecom nem de gravador WAV com compartilhamento.
 
-Consulte a [revisão e protocolo de testes](docs/reports/REVISAO_MODOS_E_LOGS_2026-09-29.md) e o [histórico](docs/HISTORICO_E_STATUS.md).
+Consulte o [relatório de otimização](docs/reports/OTIMIZACAO_BATERIA_2026-09-30.md) e o [histórico](docs/HISTORICO_E_STATUS.md).
 
 ## Modos comparativos
 
 | Perfil | Experimento de roteamento |
 |---|---|
-| X Pro experimental | MODE_NORMAL, silêncio de voz 16 kHz/buffer mínimo de 200 ms, liberação automática para mídia |
-| Standard / referência | Mesmo silêncio, sem liberação automática para mídia |
-| 2 | MODE_IN_COMMUNICATION solicitado uma vez, com silêncio de voz |
-| 3 | MODE_NORMAL, apenas seleção de rota, sem silêncio |
-| 4 | MODE_NORMAL, silêncio com atributos de sonificação e saída Bluetooth preferida |
-| 5 | MODE_IN_COMMUNICATION solicitado uma vez, sem silêncio |
-| 6 | MODE_NORMAL, silêncio de voz em loop estático, sem produtor PCM contínuo |
-| 7 | Como X Pro, mas AudioTrack PCM em 8 kHz; não seleciona codec HFP |
-| 8 | Como X Pro, buffer mínimo de 500 ms e retomada após 2,5 s sem mídia — **funcionou no teste do usuário** |
-| 9 (Eco) | Áudio idêntico ao Modo 8 + verificações espaçadas com rota estável e diagnóstico reduzido |
-| 10 (Escuta rápida) | Áudio idêntico ao Modo 8, mas verifica mídia a cada 250 ms e retoma microfone após 1,2 s sem mídia |
+| 1 — KingKong estável | **Antigo Modo 8 preservado**: MODE_NORMAL, voz 16 kHz, buffer 500 ms, retomada 2,5 s |
+| 2 — KingKong Eco | **Antigo Modo 9 preservado**: áudio do Modo 1, polling estável 3 s e heartbeat 180 s |
+| 3 — KingKong rápido | **Antigo Modo 10 preservado**: polling 250 ms e retomada 1,2 s |
+| 4 — Samsung Safe | MODE_NORMAL, buffer 400 ms, retomada 2 s e seleção conservadora |
+| 5 — Xiaomi persistente | Buffer 600 ms, watchdog 8 s e reafirmação somente após oscilação observada |
+| 6 — Motorola equilibrado | Buffer 350 ms, retomada 1,8 s e polling moderado |
+| 7 — Android 8–11 | SCO legado, timeout 15 s e MODE_IN_COMMUNICATION solicitado uma vez |
+| 8 — Android 12+ universal | `setCommunicationDevice`, MODE_NORMAL, buffer 300 ms e retomada 1,8 s |
+| 9 — Rádio fraco | Buffer 800 ms, tolerância de oscilação 1 s e retomada 3,5 s |
+| 10 — Baixa latência | Buffer 200 ms, polling 200 ms e retomada 750 ms |
+| 11 — Sem sustentação | Diagnóstico sem AudioTrack silencioso; a rota pode expirar |
+| 12 — Loop estático | AudioTrack MODE_STATIC, sem produtor PCM contínuo |
+| 13 — VoIP fallback | Último recurso com MODE_IN_COMMUNICATION; pode conflitar com notas do WhatsApp |
 
-Exceto Standard, a liberação para mídia exige ausência de captura ativa visível ao Android. Trocas de perfil aguardam o fim da captura. Os modos 2/5 permitem comparar o modo VoIP, que pode afetar a aceitação de notas pelo WhatsApp; não há reafirmação periódica de modo. Nenhum perfil captura áudio de fundo para sustentar a rota. As diferenças do retorno/DSP pertencem ao teste local.
+A liberação para mídia exige ausência de captura ativa visível ao Android. Trocas de perfil aguardam o fim da captura. Os Modos 7 e 13 usam modo VoIP uma única vez e podem afetar a aceitação de notas pelo WhatsApp. Nenhum perfil captura áudio de fundo para sustentar a rota. As diferenças do retorno/DSP pertencem apenas ao teste local.
 
-## Economia de bateria e resposta rápida (v1.5.17)
+## Economia de bateria e resposta rápida (v1.5.18)
 
-- Silêncio de sustentação em blocos de 100 ms com prioridade baixa de CPU (~10 acordos/s em vez de ~50/s); o buffer de 500 ms dos Modos 8/9 absorve atrasos sem underrun audível (é silêncio).
-- Verificação periódica adaptativa: com rota estável, a rede de segurança passa de 0,5 s para 1,5 s (3 s no Modo 9); instável, 0,5 s (1 s no Modo 9). Eventos reais (captura, reprodução, SCO, dispositivos) continuam imediatos via callbacks do Android.
-- Diagnóstico periódico espaçado com rota estável: 90 s (180 s no Modo 9); 30 s quando instável.
+- Silêncio de sustentação em blocos de 100 ms com prioridade baixa de CPU (~10 acordos/s em vez de ~50/s); o buffer de 500 ms dos Modos 1/2/3 absorve atrasos sem underrun audível (é silêncio).
+- Verificação periódica adaptativa: Modo 1 usa 1,5 s estável/0,5 s instável; Modo 2 usa 3 s/1 s; Modo 3 usa 250 ms. Eventos reais continuam chegando por callbacks do Android.
+- Diagnóstico periódico espaçado com rota estável: 90 s (180 s no Modo 2); 30 s quando instável.
 - Consulta de música ativa pulada quando o perfil não libera para mídia ou há chamada (mesmo comportamento, menos acordos do sistema).
-- Para economia máxima: use o Modo 9, desligue o **Modo Bar** (DSP global contínuo) e o botão flutuante se não usar. O rádio SCO ativo consome bateria por natureza; o app minimiza o resto.
-- Para escutar áudios recebidos com menor atraso, teste o **Modo 10**. Se ele oscilar ou cortar notas, volte ao **Modo 8**, que permanece como referência estável.
+- Para economia máxima: use o Modo 2, desligue o **Modo Bar** e o botão flutuante se não usar. O rádio SCO ativo consome bateria por natureza.
+- Para escutar áudios recebidos com menor atraso no KingKong, teste o Modo 3. Se ele oscilar ou cortar notas, volte ao Modo 1, que permanece como referência estável.
 - A tela inicial possui carrossel de banners no rodapé, alternando a cada 1 segundo e abrindo o link do anúncio ao toque.
 
 ## Logs para vários dias

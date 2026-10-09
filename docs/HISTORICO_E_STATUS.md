@@ -1,5 +1,13 @@
 # 📜 Histórico e Status do Projeto — BT Mic Pro
 
+### 2026-10-08 — v1.5.18: 13 perfis de compatibilidade e renumeração KingKong
+- **Motivo**: Usuário pediu para preservar os três modos que funcionam no KingKong X Pro, renumerá-los como 1–3 e criar mais dez estratégias para ampliar testes em outras marcas/aparelhos.
+- **Descrição**: Antigos Modos 8, 9 e 10 renomeados como **Modo 1 KingKong estável**, **Modo 2 KingKong Eco** e **Modo 3 KingKong rápido**, preservando exatamente seus parâmetros. Criados Modos 4–13: Samsung Safe, Xiaomi persistente, Motorola equilibrado, Android 8–11/SCO legado, Android 12+ universal, rádio fraco, baixa latência, sem sustentação, loop estático e VoIP fallback. Novos parâmetros por perfil controlam watchdog, tolerância de oscilação, timeout de seleção e reafirmação condicionada. Códigos antigos são migrados automaticamente; `mode_8`, `mode_9` e `mode_10` mantêm os comportamentos validados.
+- **Limite honesto**: Nomes Samsung/Xiaomi/Motorola representam **candidatos experimentais**, não compatibilidade comprovada. Apenas KingKong X Pro + KT-1 possui confirmação do usuário. Modos 7 e 13 usam `MODE_IN_COMMUNICATION` e podem conflitar com notas do WhatsApp.
+- **Arquivos**: `app/build.gradle.kts` (versionCode 36, 1.5.18); `core/{AudioModeProfile,BluetoothRoutingEngine,LiveAudioMonitor}.kt`; `ui/MainViewModel.kt`; `core/AudioModeProfileTest.kt`; `README.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Verificação**: `./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon`: **BUILD SUCCESSFUL, 44 testes/0 falhas, Lint 0 issues**. Testes confirmam 13 perfis e equivalência dos parâmetros antigos 8/9/10 com os novos 1/2/3. APK `APK/BTMicPro_v1.5.18.apk` (SHA-256 `7f478e7088f228c3673477d0dd3c8c4d3f34a95259ad0feeb20e38dc1029e3ee`), assinatura igual às versões anteriores. Todos os APKs antigos foram preservados.
+- **Status**: ✅ Implementação, migração, testes e APK concluídos. ⏳ Modos 4–13 exigem testes físicos nos respectivos aparelhos; não declarar compatibilidade antes desses testes.
+
 ### 2026-10-08 — v1.5.17: Modo Bar na home no lugar do botão flutuante
 - **Motivo**: Usuário informou que, com o app funcionando, o botão flutuante ficou irrelevante na tela inicial e pediu para trocar pelo aumentador de volume/Modo Bar.
 - **Descrição**: Card de botão flutuante removido da home. No lugar, adicionado card **Modo Bar** com switch e controle de ganho quando ativo. Botão flutuante permanece disponível apenas na página Sistema das Configurações.

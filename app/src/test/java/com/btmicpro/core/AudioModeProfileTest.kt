@@ -1,78 +1,89 @@
 package com.btmicpro.core
 
+import android.media.AudioManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AudioModeProfileTest {
     @Test
-    fun xProTestUsesNormalModeWithRouteSustainingPlayback() {
-        val profile = AudioModeProfile.fromCode("x_pro_test")
-        assertEquals(AudioModeProfile.X_PRO_TEST, profile)
-        assertEquals(android.media.AudioManager.MODE_NORMAL, profile.targetAudioMode)
-        assertEquals(true, profile.useSilenceKeepAlive)
+    fun exposesThirteenNumberedCompatibilityProfiles() {
+        assertEquals(13, AudioModeProfile.entries.size)
+        AudioModeProfile.entries.forEachIndexed { index, profile ->
+            assertTrue(profile.title.startsWith("Modo ${index + 1} "))
+        }
     }
 
     @Test
-    fun testFromCodeReturnsCorrectProfile() {
-        assertEquals(AudioModeProfile.STANDARD, AudioModeProfile.fromCode("standard"))
-        assertEquals(AudioModeProfile.MODE_2, AudioModeProfile.fromCode("mode_2"))
-        assertEquals(AudioModeProfile.MODE_3, AudioModeProfile.fromCode("mode_3"))
-        assertEquals(AudioModeProfile.MODE_4, AudioModeProfile.fromCode("mode_4"))
-        assertEquals(AudioModeProfile.MODE_5, AudioModeProfile.fromCode("mode_5"))
-        assertEquals(AudioModeProfile.MODE_6, AudioModeProfile.fromCode("mode_6"))
-        assertEquals(AudioModeProfile.MODE_7, AudioModeProfile.fromCode("mode_7"))
-        assertEquals(AudioModeProfile.MODE_8, AudioModeProfile.fromCode("mode_8"))
-        assertEquals(AudioModeProfile.MODE_9, AudioModeProfile.fromCode("mode_9"))
-        assertEquals(AudioModeProfile.MODE_10, AudioModeProfile.fromCode("mode_10"))
-    }
+    fun legacyKingKongCodesMigrateWithoutChangingValidatedParameters() {
+        val stable = AudioModeProfile.fromCode("mode_8")
+        assertEquals(AudioModeProfile.MODE_1_KINGKONG_STABLE, stable)
+        assertEquals(AudioManager.MODE_NORMAL, stable.targetAudioMode)
+        assertEquals(KeepAliveStrategy.STREAM_VOICE, stable.keepAliveStrategy)
+        assertEquals(16000, stable.keepAliveSampleRate)
+        assertEquals(500, stable.keepAliveBufferMs)
+        assertEquals(2500L, stable.mediaResumeDelayMs)
+        assertEquals(1500L, stable.routeControlStableMs)
+        assertEquals(500L, stable.routeControlUnstableMs)
 
-    @Test
-    fun testFromCodeNullOrUnknownDefaultsToStandard() {
-        assertEquals(AudioModeProfile.STANDARD, AudioModeProfile.fromCode(null))
-        assertEquals(AudioModeProfile.STANDARD, AudioModeProfile.fromCode("unknown"))
-        assertEquals(AudioModeProfile.STANDARD, AudioModeProfile.fromCode(""))
-    }
-
-    @Test
-    fun mode9EcoMatchesMode8AudioWithSlowerPolling() {
         val eco = AudioModeProfile.fromCode("mode_9")
-        val reference = AudioModeProfile.MODE_8
-        assertEquals(reference.targetAudioMode, eco.targetAudioMode)
-        assertEquals(reference.keepAliveStrategy, eco.keepAliveStrategy)
-        assertEquals(reference.keepAliveSampleRate, eco.keepAliveSampleRate)
-        assertEquals(reference.keepAliveBufferMs, eco.keepAliveBufferMs)
-        assertEquals(reference.mediaResumeDelayMs, eco.mediaResumeDelayMs)
-        assertEquals(reference.releaseForMedia, eco.releaseForMedia)
-        assertEquals(true, eco.ecoPolling)
-        assertEquals(false, reference.ecoPolling)
+        assertEquals(AudioModeProfile.MODE_2_KINGKONG_ECO, eco)
+        assertEquals(500, eco.keepAliveBufferMs)
+        assertEquals(2500L, eco.mediaResumeDelayMs)
         assertEquals(3000L, eco.routeControlStableMs)
-    }
+        assertEquals(1000L, eco.routeControlUnstableMs)
+        assertEquals(true, eco.ecoPolling)
 
-    @Test
-    fun mode10KeepsMode8AudioButReducesMediaDelay() {
         val fast = AudioModeProfile.fromCode("mode_10")
-        val reference = AudioModeProfile.MODE_8
-        assertEquals(reference.targetAudioMode, fast.targetAudioMode)
-        assertEquals(reference.keepAliveStrategy, fast.keepAliveStrategy)
-        assertEquals(reference.keepAliveSampleRate, fast.keepAliveSampleRate)
-        assertEquals(reference.keepAliveBufferMs, fast.keepAliveBufferMs)
-        assertEquals(reference.releaseForMedia, fast.releaseForMedia)
+        assertEquals(AudioModeProfile.MODE_3_KINGKONG_FAST, fast)
+        assertEquals(500, fast.keepAliveBufferMs)
         assertEquals(1200L, fast.mediaResumeDelayMs)
         assertEquals(250L, fast.routeControlStableMs)
         assertEquals(250L, fast.routeControlUnstableMs)
     }
 
     @Test
-    fun testAllProfilesHaveTitlesAndSubtitles() {
-        AudioModeProfile.values().forEach { profile ->
-            val expected = if (profile == AudioModeProfile.MODE_2 || profile == AudioModeProfile.MODE_5)
-                android.media.AudioManager.MODE_IN_COMMUNICATION else android.media.AudioManager.MODE_NORMAL
-            assertEquals(expected, profile.targetAudioMode)
+    fun newCodesRoundTripAndUnknownDefaultsToStableKingKong() {
+        AudioModeProfile.entries.forEach { profile ->
+            assertEquals(profile, AudioModeProfile.fromCode(profile.code))
+        }
+        assertEquals(AudioModeProfile.MODE_1_KINGKONG_STABLE, AudioModeProfile.fromCode(null))
+        assertEquals(AudioModeProfile.MODE_1_KINGKONG_STABLE, AudioModeProfile.fromCode("unknown"))
+    }
+
+    @Test
+    fun manufacturerCandidatesUseDistinctStrategies() {
+        val samsung = AudioModeProfile.MODE_4_SAMSUNG_SAFE
+        val xiaomi = AudioModeProfile.MODE_5_XIAOMI_PERSISTENT
+        val motorola = AudioModeProfile.MODE_6_MOTOROLA_BALANCED
+        assertEquals(AudioManager.MODE_NORMAL, samsung.targetAudioMode)
+        assertEquals(false, samsung.reassertOnTransient)
+        assertEquals(true, xiaomi.reassertOnTransient)
+        assertEquals(8000L, xiaomi.watchdogIntervalMs)
+        assertEquals(350, motorola.keepAliveBufferMs)
+    }
+
+    @Test
+    fun fallbackProfilesCoverLegacyNoKeeperStaticAndVoip() {
+        assertEquals(AudioManager.MODE_IN_COMMUNICATION, AudioModeProfile.MODE_7_ANDROID_LEGACY.targetAudioMode)
+        assertEquals(KeepAliveStrategy.NONE, AudioModeProfile.MODE_11_NO_KEEPALIVE.keepAliveStrategy)
+        assertEquals(KeepAliveStrategy.STATIC_VOICE, AudioModeProfile.MODE_12_STATIC_LOOP.keepAliveStrategy)
+        assertEquals(AudioManager.MODE_IN_COMMUNICATION, AudioModeProfile.MODE_13_VOIP_FALLBACK.targetAudioMode)
+    }
+
+    @Test
+    fun allProfilesHaveValidMetadataAndTiming() {
+        AudioModeProfile.entries.forEach { profile ->
             assertNotNull(profile.code)
             assertNotNull(profile.title)
             assertNotNull(profile.subtitle)
             assertNotNull(profile.details)
+            assertTrue(profile.routeControlStableMs > 0)
+            assertTrue(profile.routeControlUnstableMs > 0)
+            assertTrue(profile.watchdogIntervalMs > 0)
+            assertTrue(profile.transientRecheckMs > 0)
+            assertTrue(profile.selectionTimeoutMs > 0)
         }
     }
 }

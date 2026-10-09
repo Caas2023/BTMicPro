@@ -128,7 +128,7 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
                 updateRouteControl()
                 // A watchdog observes health; it never resets a failed recovery budget.
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastWatchdog >= 15000) {
+                if (now - lastWatchdog >= selectedProfile.watchdogIntervalMs) {
                     lastWatchdog = now
                     if (!recoveryBudget.exhausted) triggerAsyncRouteEvaluation()
                 }
@@ -230,7 +230,9 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
     private fun logProfile() = AppLogger.i("PROFILE_APPLIED", "code=${selectedProfile.code}; mode=${selectedProfile.targetAudioMode}; " +
         "keeper=${selectedProfile.keepAliveStrategy}; rate=${selectedProfile.keepAliveSampleRate}; bufferMs=${selectedProfile.keepAliveBufferMs}; " +
         "yieldMedia=${selectedProfile.releaseForMedia}; resumeMs=${selectedProfile.mediaResumeDelayMs}; eco=${selectedProfile.ecoPolling}; " +
-        "pollStableMs=${selectedProfile.routeControlStableMs}; pollUnstableMs=${selectedProfile.routeControlUnstableMs}")
+        "pollStableMs=${selectedProfile.routeControlStableMs}; pollUnstableMs=${selectedProfile.routeControlUnstableMs}; " +
+        "watchdogMs=${selectedProfile.watchdogIntervalMs}; transientMs=${selectedProfile.transientRecheckMs}; " +
+        "selectTimeoutMs=${selectedProfile.selectionTimeoutMs}; reassert=${selectedProfile.reassertOnTransient}")
 
     private fun logHeartbeat() {
         try {
@@ -294,12 +296,16 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
             if (shouldTolerateTransientFailure(health.action(), routeWasReady, transientFailureCount)) {
                 transientFailureCount++
                 AppLogger.w(TAG, "Oscilação observada sem forçar seleção (${health.action()}, #$transientFailureCount)")
+                if (selectedProfile.reassertOnTransient && target != null) {
+                    val accepted = commDeviceManager.reassertCommunicationDevice(target)
+                    AppLogger.i("ROUTE_REASSERT", "profile=${selectedProfile.code}; accepted=$accepted; target=${target.id}")
+                }
                 if (_currentRoute.value.isBidirectionalReady) routeLossCount++
                 _currentRoute.value = _currentRoute.value.copy(isBidirectionalReady = false)
                 setWhatsAppStatus(WhatsAppRouteStatus.UNKNOWN)
                 updateState(RouterState.RouteDegraded(device, "Rechecando oscilação do canal de voz"))
                 if (transientRecheckJob?.isActive != true) transientRecheckJob = engineScope?.launch {
-                    delay(300)
+                    delay(selectedProfile.transientRecheckMs)
                     transientRecheckJob = null
                     triggerAsyncRouteEvaluation()
                 }
@@ -397,7 +403,7 @@ class BluetoothRoutingEngine(context: Context, private val coroutineScope: Corou
                 (!audioConnected && recoveryBudget.attempt > 0)) {
                 updateState(RouterState.CommunicationDeviceSelected(device))
                 val accepted = if (legacy) commDeviceManager.requestLegacySco() else
-                    commDeviceManager.selectCommunicationDeviceWithConfirmation(target!!, profile.scoConnectionTimeout,
+                    commDeviceManager.selectCommunicationDeviceWithConfirmation(target!!, selectedProfile.selectionTimeoutMs,
                         forceRequest = !audioConnected)
                 coroutineContext.ensureActive()
                 if (!isRunning) return

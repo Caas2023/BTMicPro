@@ -60,7 +60,7 @@ class LiveAudioMonitor(
     private var returnVolume: Float = 0.0f
 
     @Volatile
-    private var currentAudioModeProfile: AudioModeProfile = AudioModeProfile.STANDARD
+    private var currentAudioModeProfile: AudioModeProfile = AudioModeProfile.defaultProfile
 
     // Número máximo de erros consecutivos de leitura antes de parar automaticamente (BUG-09)
     private val maxConsecutiveReadErrors = 10
@@ -106,35 +106,14 @@ class LiveAudioMonitor(
             val bufferSize = max(sampleRate / 50 * 2, minBufOut)
 
             val attributesBuilder = AudioAttributes.Builder()
-            when (currentAudioModeProfile) {
-                AudioModeProfile.STANDARD -> {
-                    attributesBuilder
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                }
-                AudioModeProfile.X_PRO_TEST, AudioModeProfile.MODE_2,
-                AudioModeProfile.MODE_6, AudioModeProfile.MODE_7, AudioModeProfile.MODE_8,
-                AudioModeProfile.MODE_9, AudioModeProfile.MODE_10 -> {
-                    attributesBuilder
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                }
-                AudioModeProfile.MODE_3 -> {
-                    attributesBuilder
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
-                }
-                AudioModeProfile.MODE_4 -> {
-                    attributesBuilder
-                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                }
-                AudioModeProfile.MODE_5 -> {
-                    attributesBuilder
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                }
+            if (currentAudioModeProfile.keepAliveStrategy == KeepAliveStrategy.STREAM_SONIFICATION) {
+                attributesBuilder
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            } else {
+                attributesBuilder
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             }
             val attributes = attributesBuilder.build()
 
@@ -157,24 +136,17 @@ class LiveAudioMonitor(
             }
             audioTrack = track
 
-            if (currentAudioModeProfile != AudioModeProfile.STANDARD) {
-                val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                val btOutput = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audioManager.communicationDevice?.takeIf(CommunicationDeviceManager::isVoiceBluetooth) ?: outputs.firstOrNull {
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-                    }
-                } else {
-                    outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+            val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            val btOutput = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audioManager.communicationDevice?.takeIf(CommunicationDeviceManager::isVoiceBluetooth) ?: outputs.firstOrNull {
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
                 }
-                if (btOutput != null) {
-                    val accepted = track.setPreferredDevice(btOutput)
-                    if (currentAudioModeProfile == AudioModeProfile.X_PRO_TEST) {
-                        check(accepted) { "Android recusou a saída Bluetooth do teste X Pro" }
-                    }
-                    AppLogger.i(TAG, "Saída Bluetooth [${currentAudioModeProfile.title}] roteada para: ${btOutput.productName}; aceito=$accepted")
-                } else if (currentAudioModeProfile == AudioModeProfile.X_PRO_TEST) {
-                    error("Conecte o intercomunicador e aguarde a rota Bluetooth antes do teste")
-                }
+            } else {
+                outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+            }
+            if (btOutput != null) {
+                val accepted = track.setPreferredDevice(btOutput)
+                AppLogger.i(TAG, "Saída Bluetooth [${currentAudioModeProfile.title}] roteada para: ${btOutput.productName}; aceito=$accepted")
             }
 
             track.setVolume(returnVolume)
@@ -228,11 +200,10 @@ class LiveAudioMonitor(
             // Se o BT Mic Pro capturar com VOICE_COMMUNICATION, o WhatsApp pode perder o microfone
             // ou receber silêncio. AudioSource.MIC tem prioridade mais baixa, permitindo que o
             // WhatsApp (que usa VOICE_COMMUNICATION) capture o microfone sem conflito.
-            // No Modo 5 experimental, permite VOICE_COMMUNICATION para testar amarração total no AOSP.
-            val audioSource = when (currentAudioModeProfile) {
-                AudioModeProfile.MODE_5 -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
-                else -> MediaRecorder.AudioSource.MIC
-            }
+            // Perfis VoIP/legados usam a fonte de comunicação apenas no teste local.
+            val audioSource = if (currentAudioModeProfile.targetAudioMode == AudioManager.MODE_IN_COMMUNICATION) {
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION
+            } else MediaRecorder.AudioSource.MIC
 
             val selected = AudioCaptureCompatibility.select { rate ->
                 val minimum = AudioRecord.getMinBufferSize(rate, channelConfigIn, audioEncoding)
@@ -265,24 +236,18 @@ class LiveAudioMonitor(
             // Conecta ao microfone Bluetooth se disponível
             run {
                 val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-                val btInput = if (currentAudioModeProfile == AudioModeProfile.X_PRO_TEST) {
-                    val manager = CommunicationDeviceManager(context)
-                    manager.findBestBluetoothCommunicationDevice()?.let(manager::findMatchingInput)
-                } else inputs.find {
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-                }
+                val manager = CommunicationDeviceManager(context)
+                val btInput = manager.findBestBluetoothCommunicationDevice()?.let(manager::findMatchingInput)
+                    ?: inputs.find {
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+                    }
                 if (btInput != null) {
                     val accepted = recorder.setPreferredDevice(btInput)
-                    if (currentAudioModeProfile == AudioModeProfile.X_PRO_TEST) {
-                        check(accepted) { "Android recusou o microfone Bluetooth do teste X Pro" }
-                    }
                     AppLogger.i(
                         TAG,
                         "Microfone Bluetooth preferido: ${btInput.productName}; aceito=$accepted"
                     )
-                } else if (currentAudioModeProfile == AudioModeProfile.X_PRO_TEST) {
-                    error("Microfone do intercomunicador indisponível; aguarde a rota Bluetooth")
                 }
             }
 
