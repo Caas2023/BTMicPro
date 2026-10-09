@@ -1,5 +1,12 @@
 # 📜 Histórico e Status do Projeto — BT Mic Pro
 
+### 2026-10-08 — v1.5.16: carrossel fixo de banners no rodapé da home
+- **Motivo**: Usuário pediu para reaproveitar o espaço no rodapé da tela inicial com banners/anúncios em carrossel, sempre visíveis, alternando a cada 1 segundo e abrindo link ao tocar.
+- **Descrição**: Restaurados os banners/promos antigos e movidos para `drawable-nodpi` para evitar avisos de densidade. Adicionado `AffiliateBannerCarousel()` no rodapé da home, abaixo do seletor de modos, com 8 anúncios rotativos (1 s por banner), marcação “AD”, imagem de fundo e clique abrindo o link correspondente no navegador.
+- **Arquivos**: `app/build.gradle.kts` (versionCode 34, 1.5.16); `ui/MainScreen.kt`; `res/drawable-nodpi/{banner_*,promo_*}`; `README.md`; `docs/HISTORICO_E_STATUS.md`.
+- **Verificação**: `./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon`: **BUILD SUCCESSFUL, 44 testes/0 falhas, Lint 0 issues**. APK `APK/BTMicPro_v1.5.16.apk` (SHA-256 `9a30a9f7b4b0fb85f2dbd02092c6f64632b234bd7e9bba760954f86b330b8df9`). APKs antigos preservados na pasta `APK/` conforme nova regra.
+- **Status**: ✅ Carrossel implementado e APK gerado. ⏳ Validar visual/tamanho no KingKong X Pro.
+
 ### 2026-10-08 — v1.5.15: bloqueio total de telas automáticas do Android
 - **Motivo**: Usuário informou que o app ainda ficava abrindo Configurações do aparelho/sobreposição ao iniciar, travando o fluxo.
 - **Descrição**: Removida qualquer abertura automática de tela de Configurações do Android no início do app. `MainActivity` não chama mais a tela de otimização de bateria após permissões; `FloatingButtonService` não possui mais método para abrir `ACTION_MANAGE_OVERLAY_PERMISSION`. Permissões normais do Android continuam sendo solicitadas, mas páginas manuais de sistema não são mais abertas pelo app. Se o botão flutuante não tiver permissão, permanece desligado e apenas mostra aviso.

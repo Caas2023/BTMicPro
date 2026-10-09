@@ -74,6 +74,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -266,6 +267,10 @@ fun CleanHomeScreen(
             currentAudioMode = currentAudioMode,
             onClick = { showAudioModeDialog = true }
         )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        AffiliateBannerCarousel()
 
         if (showAudioModeDialog) {
             AudioModeSelectorDialog(
@@ -1044,6 +1049,132 @@ data class PromoBannerItem(
     val bannerRes: Int,
     val neonColor: Color
 )
+
+private val homeAffiliateBanners = listOf(
+    PromoBannerItem(
+        title = "Capa de chuva",
+        highlight = "Equipamento de moto",
+        link = "https://shopee.com.br/search?keyword=capa%20de%20chuva%20moto",
+        bannerRes = R.drawable.banner_capa_chuva,
+        neonColor = PrimaryNeon
+    ),
+    PromoBannerItem(
+        title = "Capacete",
+        highlight = "Segurança na estrada",
+        link = "https://shopee.com.br/search?keyword=capacete%20moto",
+        bannerRes = R.drawable.banner_capacete,
+        neonColor = Color(0xFF4FC3F7)
+    ),
+    PromoBannerItem(
+        title = "Intercomunicador",
+        highlight = "Áudio no capacete",
+        link = "https://shopee.com.br/search?keyword=intercomunicador%20moto",
+        bannerRes = R.drawable.banner_intercom,
+        neonColor = PrimaryNeon
+    ),
+    PromoBannerItem(
+        title = "Kit relação",
+        highlight = "Manutenção da moto",
+        link = "https://shopee.com.br/search?keyword=kit%20rela%C3%A7%C3%A3o%20moto",
+        bannerRes = R.drawable.banner_relacao,
+        neonColor = WarningAmber
+    ),
+    PromoBannerItem(
+        title = "Capa impermeável",
+        highlight = "Chuva forte",
+        link = "https://shopee.com.br/search?keyword=capa%20imperme%C3%A1vel%20moto",
+        bannerRes = R.drawable.promo_capa_chuva,
+        neonColor = PrimaryNeon
+    ),
+    PromoBannerItem(
+        title = "Capacetes",
+        highlight = "Promoção",
+        link = "https://shopee.com.br/search?keyword=capacete%20fechado%20moto",
+        bannerRes = R.drawable.promo_capacete,
+        neonColor = Color(0xFF4FC3F7)
+    ),
+    PromoBannerItem(
+        title = "Pneus de moto",
+        highlight = "Troca e manutenção",
+        link = "https://shopee.com.br/search?keyword=pneu%20moto",
+        bannerRes = R.drawable.promo_pneus,
+        neonColor = WarningAmber
+    ),
+    PromoBannerItem(
+        title = "Relação",
+        highlight = "Kit transmissão",
+        link = "https://shopee.com.br/search?keyword=rela%C3%A7%C3%A3o%20moto",
+        bannerRes = R.drawable.promo_relacao,
+        neonColor = PrimaryNeon
+    )
+)
+
+@Composable
+fun AffiliateBannerCarousel() {
+    val uriHandler = LocalUriHandler.current
+    var currentIndex by remember { mutableIntStateOf(0) }
+    val current = homeAffiliateBanners[currentIndex]
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            currentIndex = (currentIndex + 1) % homeAffiliateBanners.size
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(88.dp)
+            .clickable { uriHandler.openUri(current.link) },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, current.neonColor.copy(alpha = 0.45f))
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(current.bannerRes),
+                contentDescription = "Anúncio: ${current.title}",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.30f))
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = current.title.uppercase(),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(
+                    text = "${current.highlight} • tocar para abrir",
+                    color = current.neonColor,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = "AD",
+                color = Color.Black,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .background(current.neonColor, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
 
 
 @Composable
